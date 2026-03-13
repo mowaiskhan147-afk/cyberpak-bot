@@ -16,7 +16,36 @@ BOT_TOKEN  = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
 API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY    = "KINGOWAIS_OWNER"
 ADMIN_ID   = 7962481764
-CONFIG_FILE = "config.json"
+
+# ── Upstash Redis REST ─────────────────────────────────────────────────────
+UPSTASH_URL   = "https://precise-coyote-67987.upstash.io"
+UPSTASH_TOKEN = "gQAAAAAAAQmTAAIncDI0YTVhNjYwOGJjMzk0NTIxYTYyYTA3MzM5YWY4ZmEyOHAyNjc5ODc"
+
+def redis_set(key, value):
+    try:
+        r = requests.post(
+            f"{UPSTASH_URL}/set/{key}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            json=value,
+            timeout=5
+        )
+        return r.json()
+    except Exception as e:
+        print(f"Redis SET error: {e}")
+
+def redis_get(key):
+    try:
+        r = requests.get(
+            f"{UPSTASH_URL}/get/{key}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+        data = r.json()
+        if data.get("result") is not None:
+            return json.loads(data["result"])
+    except Exception as e:
+        print(f"Redis GET error: {e}")
+    return None
 
 # ── Config load/save ───────────────────────────────────────────────────────
 DEFAULT_CONFIG = {
@@ -28,20 +57,16 @@ DEFAULT_CONFIG = {
 }
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
+    data = redis_get("bot_config")
+    if data and isinstance(data, dict):
+        print("✅ Config loaded from Upstash Redis")
+        return data
+    print("⚠️ Using default config")
     return DEFAULT_CONFIG.copy()
 
 def save_config():
-    try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f, indent=2)
-    except Exception as e:
-        print(f"Config save error: {e}")
+    redis_set("bot_config", json.dumps(config))
+    print("✅ Config saved to Upstash Redis")
 
 config = load_config()
 
@@ -252,11 +277,9 @@ def fetch_data(message):
 
     user_id = message.from_user.id
 
-    # ── Admin pending actions ────────────────────────────────────────────
     if is_admin(user_id) and user_id in pending_action:
         action = pending_action.pop(user_id)
         text   = message.text.strip()
-
         if action == "add_channel":
             ch = text if text.startswith("@") else f"@{text}"
             if ch not in config["channels"]:
@@ -279,19 +302,16 @@ def fetch_data(message):
             bot.reply_to(message, "✅ Footer update ho gaya!")
         return
 
-    # ── Maintenance mode ─────────────────────────────────────────────────
     if not config["bot_active"] and not is_admin(user_id):
         bot.reply_to(message, config["maintenance_msg"])
         return
 
-    # ── Channel check ────────────────────────────────────────────────────
     if not is_admin(user_id):
         unjoined = get_unjoined_channels(user_id)
         if unjoined:
             send_join_alert(message.chat.id, unjoined)
             return
 
-    # ── Search ───────────────────────────────────────────────────────────
     query    = message.text.strip()
     wait_msg = bot.reply_to(message, "<b>⏳ Scanning King OwAiS Mainframe...</b>")
     params   = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
