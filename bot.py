@@ -1,5 +1,5 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request
 import requests
 import urllib.parse
@@ -16,15 +16,34 @@ BOT_TOKEN  = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
 API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY    = "KINGOWAIS_OWNER"
 ADMIN_ID   = 7962481764
+CONFIG_FILE = "config.json"
 
-# ── Dynamic config (admin se update hoga) ─────────────────────────────────
-config = {
+# ── Config load/save ───────────────────────────────────────────────────────
+DEFAULT_CONFIG = {
     "channels": ["@wp_trick", "@SoloHunter3"],
     "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details from the mainframe.",
     "bot_active": True,
     "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
     "footer": "👑 Database by Owais &amp; Liaqat"
 }
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return DEFAULT_CONFIG.copy()
+
+def save_config():
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Config save error: {e}")
+
+config = load_config()
 
 PORT         = int(os.environ.get("PORT", 5000))
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -72,26 +91,22 @@ def send_join_alert(chat_id, unjoined):
         name = ch.replace("@", "")
         markup.add(InlineKeyboardButton(f"📢 Join @{name}", url=f"https://t.me/{name}"))
     ch_list = "\n".join([f"• {ch}" for ch in unjoined])
-    bot.send_message(
-        chat_id,
+    bot.send_message(chat_id,
         f"<b>🚫 ACCESS DENIED!</b>\n\nPehle yeh channels join karo:\n{ch_list}\n\n"
         f"<i>⚠️ Channel chhoda to access kho jaoge!</i>",
         reply_markup=markup
     )
-
-# ══════════════════════════════════════════
-# 👑 ADMIN PANEL
-# ══════════════════════════════════════════
 
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
 def admin_panel_markup():
     markup = InlineKeyboardMarkup(row_width=2)
+    toggle_text = "🔴 Bot OFF" if config["bot_active"] else "🟢 Bot ON"
     markup.add(
         InlineKeyboardButton("📢 Channels", callback_data="admin_channels"),
         InlineKeyboardButton("✏️ Welcome Msg", callback_data="admin_welcome"),
-        InlineKeyboardButton("🔻 Bot OFF", callback_data="admin_toggle") if config["bot_active"] else InlineKeyboardButton("🟢 Bot ON", callback_data="admin_toggle"),
+        InlineKeyboardButton(toggle_text, callback_data="admin_toggle"),
         InlineKeyboardButton("🔧 Maintenance Msg", callback_data="admin_maintenance"),
         InlineKeyboardButton("👣 Footer", callback_data="admin_footer"),
         InlineKeyboardButton("📊 Bot Status", callback_data="admin_status"),
@@ -99,7 +114,7 @@ def admin_panel_markup():
     return markup
 
 def admin_panel_text():
-    status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
+    status   = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
     channels = "\n".join(config["channels"]) if config["channels"] else "None"
     return (
         f"<b>👑 ADMIN PANEL</b>\n"
@@ -109,6 +124,8 @@ def admin_panel_text():
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"<i>Button dabao kuch update karne ke liye</i>"
     )
+
+pending_action = {}
 
 @bot.message_handler(commands=["admin"])
 def admin_cmd(message):
@@ -139,19 +156,12 @@ def start_msg(message):
         f"<i>⚡ Powered by Owais &amp; Liaqat</i>"
     )
 
-# ══════════════════════════════════════════
-# ADMIN CALLBACKS
-# ══════════════════════════════════════════
-
-# Track pending admin actions
-pending_action = {}
-
 @bot.callback_query_handler(func=lambda c: c.data.startswith("admin_") and is_admin(c.from_user.id))
 def admin_callbacks(call):
     data = call.data
 
     if data == "admin_status":
-        status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
+        status   = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
         channels = "\n".join(config["channels"]) if config["channels"] else "None"
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id,
@@ -159,15 +169,19 @@ def admin_callbacks(call):
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"Status: {status}\n"
             f"Channels: {channels}\n"
-            f"Welcome Msg: {config['welcome_msg'][:50]}...\n"
+            f"Welcome: {config['welcome_msg'][:60]}...\n"
             f"Footer: {config['footer']}\n"
+            f"Maintenance: {config['maintenance_msg'][:60]}...\n"
         )
 
     elif data == "admin_toggle":
         config["bot_active"] = not config["bot_active"]
+        save_config()
         status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
         bot.answer_callback_query(call.id, f"Bot is now {status}")
-        bot.edit_message_text(admin_panel_text(), call.message.chat.id, call.message.message_id, reply_markup=admin_panel_markup())
+        try:
+            bot.edit_message_text(admin_panel_text(), call.message.chat.id, call.message.message_id, reply_markup=admin_panel_markup())
+        except: pass
 
     elif data == "admin_channels":
         bot.answer_callback_query(call.id)
@@ -195,50 +209,42 @@ def admin_callbacks(call):
             return
         markup = InlineKeyboardMarkup()
         for ch in config["channels"]:
-            markup.add(InlineKeyboardButton(f"❌ {ch}", callback_data=f"admin_rm_{ch}"))
+            markup.add(InlineKeyboardButton(f"❌ {ch}", callback_data=f"rmch_{ch}"))
         markup.add(InlineKeyboardButton("🔙 Back", callback_data="admin_channels"))
         bot.send_message(call.message.chat.id, "Konsa channel remove karna hai?", reply_markup=markup)
-
-    elif data.startswith("admin_rm_@"):
-        ch = data.replace("admin_rm_", "")
-        if ch in config["channels"]:
-            config["channels"].remove(ch)
-            bot.answer_callback_query(call.id, f"✅ {ch} removed!")
-            bot.send_message(call.message.chat.id, f"✅ <b>{ch}</b> channel remove ho gaya!")
-        else:
-            bot.answer_callback_query(call.id, "Channel nahi mila!")
 
     elif data == "admin_welcome":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_welcome"
         bot.send_message(call.message.chat.id,
-            f"<b>Current welcome msg:</b>\n{config['welcome_msg']}\n\n"
-            f"Naya welcome message bhejo:"
-        )
+            f"<b>Current:</b>\n{config['welcome_msg']}\n\nNaya welcome message bhejo:")
 
     elif data == "admin_maintenance":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_maintenance"
         bot.send_message(call.message.chat.id,
-            f"<b>Current maintenance msg:</b>\n{config['maintenance_msg']}\n\n"
-            f"Naya maintenance message bhejo:"
-        )
+            f"<b>Current:</b>\n{config['maintenance_msg']}\n\nNaya maintenance message bhejo:")
 
     elif data == "admin_footer":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_footer"
         bot.send_message(call.message.chat.id,
-            f"<b>Current footer:</b>\n{config['footer']}\n\n"
-            f"Naya footer bhejo:"
-        )
+            f"<b>Current:</b>\n{config['footer']}\n\nNaya footer bhejo:")
 
     elif data == "admin_back":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
 
-# ══════════════════════════════════════════
-# MAIN MESSAGE HANDLER
-# ══════════════════════════════════════════
+@bot.callback_query_handler(func=lambda c: c.data.startswith("rmch_") and is_admin(c.from_user.id))
+def remove_channel_cb(call):
+    ch = call.data.replace("rmch_", "")
+    if ch in config["channels"]:
+        config["channels"].remove(ch)
+        save_config()
+        bot.answer_callback_query(call.id, f"✅ {ch} removed!")
+        bot.send_message(call.message.chat.id, f"✅ <b>{ch}</b> remove ho gaya!")
+    else:
+        bot.answer_callback_query(call.id, "Channel nahi mila!")
 
 @bot.message_handler(func=lambda m: True)
 def fetch_data(message):
@@ -255,22 +261,22 @@ def fetch_data(message):
             ch = text if text.startswith("@") else f"@{text}"
             if ch not in config["channels"]:
                 config["channels"].append(ch)
+                save_config()
                 bot.reply_to(message, f"✅ <b>{ch}</b> add ho gaya!")
             else:
                 bot.reply_to(message, f"⚠️ {ch} already hai!")
-
         elif action == "set_welcome":
             config["welcome_msg"] = text
+            save_config()
             bot.reply_to(message, "✅ Welcome message update ho gaya!")
-
         elif action == "set_maintenance":
             config["maintenance_msg"] = text
+            save_config()
             bot.reply_to(message, "✅ Maintenance message update ho gaya!")
-
         elif action == "set_footer":
             config["footer"] = text
+            save_config()
             bot.reply_to(message, "✅ Footer update ho gaya!")
-
         return
 
     # ── Maintenance mode ─────────────────────────────────────────────────
@@ -343,10 +349,10 @@ def fetch_data(message):
             ph = rec.get("phone") or rec.get("mobile")
             if ph: persons[key]["numbers"].add(str(ph))
 
-        full_msg   = ""
-        map_url    = None
+        full_msg = ""
+        map_url = None
         static_url = None
-        file_num   = 0
+        file_num = 0
 
         for p in persons.values():
             file_num += 1
@@ -387,7 +393,6 @@ def fetch_data(message):
                     f"━━━━━━━━━━━━━━━━━━━\n"
                     f"📌 {address}\n"
                 )
-
             full_msg += block
 
         full_msg += f"━━━━━━━━━━━━━━━━━━━\n<i>{config['footer']}</i>"
@@ -411,7 +416,6 @@ def fetch_data(message):
                 chat_id=message.chat.id, message_id=wait_msg.message_id)
         except: pass
 
-# ── Flask routes ───────────────────────────────────────────────────────────
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
