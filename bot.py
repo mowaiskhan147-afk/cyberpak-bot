@@ -1,26 +1,30 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import requests
 import urllib.parse
 import os
 import threading
 import time
+import json
 
 # ==========================================
 # 👑 PRO DATABASE BOT BY OWAIS & LIAQAT 👑
 # ==========================================
 
-BOT_TOKEN        = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
-API_URL          = "https://kingowais-pak-api.vercel.app/api/search"
-API_KEY          = "KINGOWAIS_OWNER"
+BOT_TOKEN  = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
+API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
+API_KEY    = "KINGOWAIS_OWNER"
+ADMIN_ID   = 7962481764
 
-# ✅ Saare required channels
-CHANNELS = [
-    "@wp_trick",
-    "@cyber_apis",
-    "@SoloHunter3"
-]
+# ── Dynamic config (admin se update hoga) ─────────────────────────────────
+config = {
+    "channels": ["@wp_trick", "@SoloHunter3"],
+    "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details from the mainframe.",
+    "bot_active": True,
+    "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
+    "footer": "👑 Database by Owais &amp; Liaqat"
+}
 
 PORT         = int(os.environ.get("PORT", 5000))
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -34,10 +38,10 @@ def set_webhook_auto():
     try:
         bot.remove_webhook()
         time.sleep(1)
-        result = bot.set_webhook(url=WEBHOOK_URL)
-        print(f"✅ Webhook auto-set: {WEBHOOK_URL} → {result}")
+        bot.set_webhook(url=WEBHOOK_URL)
+        print(f"✅ Webhook set: {WEBHOOK_URL}")
     except Exception as e:
-        print(f"❌ Webhook set failed: {e}")
+        print(f"❌ Webhook failed: {e}")
 
 def detectNetwork(num):
     if not num: return "Unknown"
@@ -51,11 +55,9 @@ def detectNetwork(num):
     if n.startswith("35"): return "SCO"
     return "Unknown"
 
-# ── Subscription check — saare channels ──────────────────────────────────
 def get_unjoined_channels(user_id):
-    """Return list of channels user ne join nahi kiye"""
     unjoined = []
-    for ch in CHANNELS:
+    for ch in config["channels"]:
         try:
             status = bot.get_chat_member(ch, user_id).status
             if status not in ["creator", "administrator", "member"]:
@@ -68,52 +70,222 @@ def send_join_alert(chat_id, unjoined):
     markup = InlineKeyboardMarkup()
     for ch in unjoined:
         name = ch.replace("@", "")
-        markup.add(InlineKeyboardButton(
-            f"📢 Join @{name}",
-            url=f"https://t.me/{name}"
-        ))
+        markup.add(InlineKeyboardButton(f"📢 Join @{name}", url=f"https://t.me/{name}"))
     ch_list = "\n".join([f"• {ch}" for ch in unjoined])
     bot.send_message(
         chat_id,
-        f"<b>🚫 ACCESS DENIED!</b>\n\n"
-        f"Pehle yeh channels join karo:\n{ch_list}\n\n"
+        f"<b>🚫 ACCESS DENIED!</b>\n\nPehle yeh channels join karo:\n{ch_list}\n\n"
         f"<i>⚠️ Channel chhoda to access kho jaoge!</i>",
         reply_markup=markup
     )
 
-# ── /start ─────────────────────────────────────────────────────────────────
-@bot.message_handler(commands=["start"])
-def start_msg(message):
-    # Groups mein ignore karo
-    if message.chat.type in ["group", "supergroup", "channel"]:
-        return
+# ══════════════════════════════════════════
+# 👑 ADMIN PANEL
+# ══════════════════════════════════════════
 
-    unjoined = get_unjoined_channels(message.from_user.id)
-    if unjoined:
-        send_join_alert(message.chat.id, unjoined)
-        return
+def is_admin(user_id):
+    return user_id == ADMIN_ID
 
-    bot.reply_to(
-        message,
-        "<b>🛡️ WELCOME TO PRO DATABASE BOT</b>\n\n"
-        "Access Granted! ✅\n"
-        "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) "
-        "or 13-digit CNIC to fetch details from the mainframe.\n\n"
-        "<i>⚡ Powered by Owais &amp; Liaqat</i>"
+def admin_panel_markup():
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("📢 Channels", callback_data="admin_channels"),
+        InlineKeyboardButton("✏️ Welcome Msg", callback_data="admin_welcome"),
+        InlineKeyboardButton("🔻 Bot OFF", callback_data="admin_toggle") if config["bot_active"] else InlineKeyboardButton("🟢 Bot ON", callback_data="admin_toggle"),
+        InlineKeyboardButton("🔧 Maintenance Msg", callback_data="admin_maintenance"),
+        InlineKeyboardButton("👣 Footer", callback_data="admin_footer"),
+        InlineKeyboardButton("📊 Bot Status", callback_data="admin_status"),
+    )
+    return markup
+
+def admin_panel_text():
+    status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
+    channels = "\n".join(config["channels"]) if config["channels"] else "None"
+    return (
+        f"<b>👑 ADMIN PANEL</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"Status: {status}\n"
+        f"Channels:\n{channels}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Button dabao kuch update karne ke liye</i>"
     )
 
-# ── Main handler ───────────────────────────────────────────────────────────
-@bot.message_handler(func=lambda m: True)
-def fetch_data(message):
-    # Groups/channels mein bilkul kaam na kare
-    if message.chat.type in ["group", "supergroup", "channel"]:
+@bot.message_handler(commands=["admin"])
+def admin_cmd(message):
+    if message.chat.type != "private": return
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "❌ You are not admin!")
         return
+    bot.send_message(message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
 
+@bot.message_handler(commands=["start"])
+def start_msg(message):
+    if message.chat.type in ["group", "supergroup", "channel"]: return
+    if is_admin(message.from_user.id):
+        bot.reply_to(message,
+            "<b>👑 Welcome Admin Owais!</b>\n\n"
+            "Use /admin to open Admin Panel.\n"
+            "Or send any number/CNIC to search."
+        )
+        return
     unjoined = get_unjoined_channels(message.from_user.id)
     if unjoined:
         send_join_alert(message.chat.id, unjoined)
         return
+    bot.reply_to(message,
+        f"<b>🛡️ WELCOME TO PRO DATABASE BOT</b>\n\n"
+        f"Access Granted! ✅\n"
+        f"{config['welcome_msg']}\n\n"
+        f"<i>⚡ Powered by Owais &amp; Liaqat</i>"
+    )
 
+# ══════════════════════════════════════════
+# ADMIN CALLBACKS
+# ══════════════════════════════════════════
+
+# Track pending admin actions
+pending_action = {}
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("admin_") and is_admin(c.from_user.id))
+def admin_callbacks(call):
+    data = call.data
+
+    if data == "admin_status":
+        status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
+        channels = "\n".join(config["channels"]) if config["channels"] else "None"
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id,
+            f"<b>📊 BOT STATUS</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"Status: {status}\n"
+            f"Channels: {channels}\n"
+            f"Welcome Msg: {config['welcome_msg'][:50]}...\n"
+            f"Footer: {config['footer']}\n"
+        )
+
+    elif data == "admin_toggle":
+        config["bot_active"] = not config["bot_active"]
+        status = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
+        bot.answer_callback_query(call.id, f"Bot is now {status}")
+        bot.edit_message_text(admin_panel_text(), call.message.chat.id, call.message.message_id, reply_markup=admin_panel_markup())
+
+    elif data == "admin_channels":
+        bot.answer_callback_query(call.id)
+        channels = "\n".join(config["channels"]) if config["channels"] else "None"
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("➕ Add Channel", callback_data="admin_ch_add"),
+            InlineKeyboardButton("➖ Remove Channel", callback_data="admin_ch_remove"),
+            InlineKeyboardButton("🔙 Back", callback_data="admin_back")
+        )
+        bot.send_message(call.message.chat.id,
+            f"<b>📢 CHANNELS</b>\n━━━━━━━━━━━━━━━━━━━\n{channels}\n━━━━━━━━━━━━━━━━━━━",
+            reply_markup=markup
+        )
+
+    elif data == "admin_ch_add":
+        bot.answer_callback_query(call.id)
+        pending_action[call.from_user.id] = "add_channel"
+        bot.send_message(call.message.chat.id, "Channel username bhejo (e.g. <code>@mychannel</code>):")
+
+    elif data == "admin_ch_remove":
+        bot.answer_callback_query(call.id)
+        if not config["channels"]:
+            bot.send_message(call.message.chat.id, "Koi channel nahi hai!")
+            return
+        markup = InlineKeyboardMarkup()
+        for ch in config["channels"]:
+            markup.add(InlineKeyboardButton(f"❌ {ch}", callback_data=f"admin_rm_{ch}"))
+        markup.add(InlineKeyboardButton("🔙 Back", callback_data="admin_channels"))
+        bot.send_message(call.message.chat.id, "Konsa channel remove karna hai?", reply_markup=markup)
+
+    elif data.startswith("admin_rm_@"):
+        ch = data.replace("admin_rm_", "")
+        if ch in config["channels"]:
+            config["channels"].remove(ch)
+            bot.answer_callback_query(call.id, f"✅ {ch} removed!")
+            bot.send_message(call.message.chat.id, f"✅ <b>{ch}</b> channel remove ho gaya!")
+        else:
+            bot.answer_callback_query(call.id, "Channel nahi mila!")
+
+    elif data == "admin_welcome":
+        bot.answer_callback_query(call.id)
+        pending_action[call.from_user.id] = "set_welcome"
+        bot.send_message(call.message.chat.id,
+            f"<b>Current welcome msg:</b>\n{config['welcome_msg']}\n\n"
+            f"Naya welcome message bhejo:"
+        )
+
+    elif data == "admin_maintenance":
+        bot.answer_callback_query(call.id)
+        pending_action[call.from_user.id] = "set_maintenance"
+        bot.send_message(call.message.chat.id,
+            f"<b>Current maintenance msg:</b>\n{config['maintenance_msg']}\n\n"
+            f"Naya maintenance message bhejo:"
+        )
+
+    elif data == "admin_footer":
+        bot.answer_callback_query(call.id)
+        pending_action[call.from_user.id] = "set_footer"
+        bot.send_message(call.message.chat.id,
+            f"<b>Current footer:</b>\n{config['footer']}\n\n"
+            f"Naya footer bhejo:"
+        )
+
+    elif data == "admin_back":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
+
+# ══════════════════════════════════════════
+# MAIN MESSAGE HANDLER
+# ══════════════════════════════════════════
+
+@bot.message_handler(func=lambda m: True)
+def fetch_data(message):
+    if message.chat.type in ["group", "supergroup", "channel"]: return
+
+    user_id = message.from_user.id
+
+    # ── Admin pending actions ────────────────────────────────────────────
+    if is_admin(user_id) and user_id in pending_action:
+        action = pending_action.pop(user_id)
+        text   = message.text.strip()
+
+        if action == "add_channel":
+            ch = text if text.startswith("@") else f"@{text}"
+            if ch not in config["channels"]:
+                config["channels"].append(ch)
+                bot.reply_to(message, f"✅ <b>{ch}</b> add ho gaya!")
+            else:
+                bot.reply_to(message, f"⚠️ {ch} already hai!")
+
+        elif action == "set_welcome":
+            config["welcome_msg"] = text
+            bot.reply_to(message, "✅ Welcome message update ho gaya!")
+
+        elif action == "set_maintenance":
+            config["maintenance_msg"] = text
+            bot.reply_to(message, "✅ Maintenance message update ho gaya!")
+
+        elif action == "set_footer":
+            config["footer"] = text
+            bot.reply_to(message, "✅ Footer update ho gaya!")
+
+        return
+
+    # ── Maintenance mode ─────────────────────────────────────────────────
+    if not config["bot_active"] and not is_admin(user_id):
+        bot.reply_to(message, config["maintenance_msg"])
+        return
+
+    # ── Channel check ────────────────────────────────────────────────────
+    if not is_admin(user_id):
+        unjoined = get_unjoined_channels(user_id)
+        if unjoined:
+            send_join_alert(message.chat.id, unjoined)
+            return
+
+    # ── Search ───────────────────────────────────────────────────────────
     query    = message.text.strip()
     wait_msg = bot.reply_to(message, "<b>⏳ Scanning King OwAiS Mainframe...</b>")
     params   = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
@@ -122,7 +294,6 @@ def fetch_data(message):
         res  = requests.get(API_URL, params=params, timeout=15)
         data = res.json()
 
-        # ── Extract records ──────────────────────────────────────────────
         records = None
         if data.get("success"):
             d = data.get("data", {})
@@ -136,13 +307,10 @@ def fetch_data(message):
                 records = data["records"]
 
         if not records:
-            bot.edit_message_text(
-                "<b>⚠️ NO RECORD FOUND IN DATABASE!</b>",
-                chat_id=message.chat.id, message_id=wait_msg.message_id
-            )
+            bot.edit_message_text("<b>⚠️ NO RECORD FOUND IN DATABASE!</b>",
+                chat_id=message.chat.id, message_id=wait_msg.message_id)
             return
 
-        # ── Censored check ───────────────────────────────────────────────
         def is_censored(rec):
             vals = [str(rec.get("full_name","") or ""), str(rec.get("phone","") or ""), str(rec.get("cnic","") or "")]
             real = [v for v in vals if v.strip()]
@@ -150,10 +318,8 @@ def fetch_data(message):
 
         if all(is_censored(r) for r in records):
             bot.edit_message_text(
-                "<b>⚠️ NO RECORD FOUND IN DATABASE!</b>\n\n"
-                "<i>This number/CNIC has no data in our mainframe.</i>",
-                chat_id=message.chat.id, message_id=wait_msg.message_id
-            )
+                "<b>⚠️ NO RECORD FOUND IN DATABASE!</b>\n\n<i>This number/CNIC has no data in our mainframe.</i>",
+                chat_id=message.chat.id, message_id=wait_msg.message_id)
             return
 
         bot.delete_message(message.chat.id, wait_msg.message_id)
@@ -161,7 +327,6 @@ def fetch_data(message):
         def clr(v):
             return v if v and str(v).lower() not in ("none", "n/a", "") else "N/A"
 
-        # ── Group by person ──────────────────────────────────────────────
         persons = {}
         for rec in records:
             name = clr(rec.get("full_name") or rec.get("name") or "")
@@ -178,7 +343,6 @@ def fetch_data(message):
             ph = rec.get("phone") or rec.get("mobile")
             if ph: persons[key]["numbers"].add(str(ph))
 
-        # ── Build ONE combined message ────────────────────────────────────
         full_msg   = ""
         map_url    = None
         static_url = None
@@ -186,13 +350,11 @@ def fetch_data(message):
 
         for p in persons.values():
             file_num += 1
-            # SIMs
             sims_list = sorted(p["numbers"])
             sims_text = ""
             for i, num in enumerate(sims_list, 1):
                 sims_text += f"{i}. <code>{num}</code> - {detectNetwork(num)}\n"
 
-            # Father field mein searched query dikhao
             father_display = query if p["father"] == "N/A" else p["father"]
 
             block = (
@@ -212,7 +374,7 @@ def fetch_data(message):
             address = p["address"]
             if address != "N/A":
                 enc = urllib.parse.quote(address)
-                if not map_url:  # pehle person ka map use karo
+                if not map_url:
                     map_url    = f"https://maps.google.com/maps?q={enc}"
                     static_url = (
                         f"https://maps.googleapis.com/maps/api/staticmap"
@@ -228,41 +390,25 @@ def fetch_data(message):
 
             full_msg += block
 
-        full_msg += f"━━━━━━━━━━━━━━━━━━━\n<i>👑 Database by Owais &amp; Liaqat</i>"
+        full_msg += f"━━━━━━━━━━━━━━━━━━━\n<i>{config['footer']}</i>"
 
-        # ── Send as ONE message ──────────────────────────────────────────
         btn = InlineKeyboardMarkup()
         if map_url:
             btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
 
         if map_url and static_url:
             try:
-                bot.send_photo(
-                    message.chat.id,
-                    photo=static_url,
-                    caption=full_msg,
-                    reply_markup=btn,
-                    parse_mode="HTML"
-                )
-            except Exception:
-                bot.send_message(
-                    message.chat.id, full_msg,
-                    reply_markup=btn,
-                    disable_web_page_preview=True
-                )
+                bot.send_photo(message.chat.id, photo=static_url, caption=full_msg, reply_markup=btn, parse_mode="HTML")
+            except:
+                bot.send_message(message.chat.id, full_msg, reply_markup=btn, disable_web_page_preview=True)
         else:
-            bot.send_message(
-                message.chat.id, full_msg,
-                disable_web_page_preview=True
-            )
+            bot.send_message(message.chat.id, full_msg, disable_web_page_preview=True)
 
     except Exception as e:
         print(f"Error: {e}")
         try:
-            bot.edit_message_text(
-                "<b>❌ API ERROR:</b> Server is busy or offline.",
-                chat_id=message.chat.id, message_id=wait_msg.message_id
-            )
+            bot.edit_message_text("<b>❌ API ERROR:</b> Server is busy or offline.",
+                chat_id=message.chat.id, message_id=wait_msg.message_id)
         except: pass
 
 # ── Flask routes ───────────────────────────────────────────────────────────
