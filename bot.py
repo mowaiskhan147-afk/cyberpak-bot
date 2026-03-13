@@ -4,6 +4,8 @@ from flask import Flask, request
 import requests
 import urllib.parse
 import os
+import threading
+import time
 
 # ==========================================
 # 👑 PRO DATABASE BOT BY OWAIS & LIAQAT 👑
@@ -13,16 +15,24 @@ BOT_TOKEN        = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
 API_URL          = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY          = "KINGOWAIS_OWNER"
 CHANNEL_USERNAME = "@wp_trick"
-
-# Render automatically PORT deta hai
-PORT = int(os.environ.get("PORT", 5000))
-
-# Render app URL — deploy ke baad yahan apna Render URL lagao
-WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://YOUR-APP.onrender.com")
-WEBHOOK_URL  = f"{WEBHOOK_HOST}/{BOT_TOKEN}"
+PORT             = int(os.environ.get("PORT", 5000))
+WEBHOOK_HOST     = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+WEBHOOK_URL      = f"{WEBHOOK_HOST}/{BOT_TOKEN}"
 
 app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML", threaded=False)
+
+# ── Auto webhook set on startup ────────────────────────────────────────────
+def set_webhook_auto():
+    """5 second wait karo taake Flask pehle start ho, phir webhook set karo"""
+    time.sleep(5)
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        result = bot.set_webhook(url=WEBHOOK_URL)
+        print(f"✅ Webhook auto-set: {WEBHOOK_URL} → {result}")
+    except Exception as e:
+        print(f"❌ Webhook set failed: {e}")
 
 def detectNetwork(num):
     if not num: return "Unknown"
@@ -211,6 +221,7 @@ def fetch_data(message):
             )
         except: pass
 
+# ── Flask routes ───────────────────────────────────────────────────────────
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
@@ -227,5 +238,8 @@ def set_webhook():
 def index():
     return "🤖 King OwAiS Bot is Running!"
 
+# ── Start ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # Background thread mein webhook auto-set karo
+    threading.Thread(target=set_webhook_auto, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)
