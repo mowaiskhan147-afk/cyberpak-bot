@@ -92,10 +92,8 @@ def fetch_data(message):
     params   = {"key": API_KEY}
 
     clean = query.replace("-", "").replace(" ", "")
-    if len(clean) == 13 and clean.isdigit():
-        params["cnic"]  = clean
-    else:
-        params["phone"] = clean
+    # API sirf phone parameter accept karta hai — CNIC bhi phone se bhejo
+    params["phone"] = clean
 
     try:
         res  = requests.get(API_URL, params=params, timeout=15)
@@ -189,7 +187,7 @@ def fetch_data(message):
                 btn = InlineKeyboardMarkup()
                 btn.add(InlineKeyboardButton(
                     "🗺️ Open Map Location",
-                    web_app=telebot.types.WebAppInfo(url=map_url)
+                    url=map_url
                 ))
                 try:
                     bot.send_photo(
