@@ -100,7 +100,7 @@ def track_user(user):
 
 
 DEFAULT_CONFIG = {
-    "channels": ["@wp_trick", "@SoloHunter3"],
+    "channels": ["@SoloHunter3", "@o_p_trick", "@cyberxos8"],
     "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details.",
     "bot_active": True,
     "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
@@ -501,23 +501,21 @@ def fetch_data(message):
         def clr(v):
             return v if v and str(v).lower() not in ("none", "n/a", "") else "N/A"
 
-        persons = {}
+        # Merge ALL records into ONE — collect all numbers, best name/cnic/address
+        merged = {"name": "N/A", "cnic": "N/A", "address": "N/A", "father": "N/A", "numbers": set()}
         for rec in records:
-            name = clr(rec.get("full_name") or rec.get("name") or "")
-            cnic = clr(rec.get("cnic") or "")
-            key  = (name, cnic)
-            if key not in persons:
-                persons[key] = {
-                    "name":    name,
-                    "cnic":    cnic,
-                    "address": clr(rec.get("address") or ""),
-                    "father":  clr(rec.get("father_name") or ""),
-                    "numbers": set()
-                }
-            ph = rec.get("phone") or rec.get("mobile")
-            if ph: persons[key]["numbers"].add(str(ph))
+            name    = clr(rec.get("full_name") or rec.get("name") or "")
+            cnic    = clr(rec.get("cnic") or "")
+            address = clr(rec.get("address") or "")
+            father  = clr(rec.get("father_name") or "")
+            ph      = rec.get("phone") or rec.get("mobile")
+            if name    != "N/A": merged["name"]    = name
+            if cnic    != "N/A": merged["cnic"]    = cnic
+            if address != "N/A": merged["address"] = address
+            if father  != "N/A": merged["father"]  = father
+            if ph: merged["numbers"].add(str(ph))
 
-        for p in persons.values():
+        for p in [merged]:
             sims_list = sorted(p["numbers"])
             sims_text = ""
             for i, num in enumerate(sims_list, 1):
@@ -537,7 +535,7 @@ def fetch_data(message):
                 f"{sims_text}\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"<i>✨ {config['footer']}</i>\n"
-                f"<i>🔗 @wp_trick | @SoloHunter3</i>"
+                f"<i>🔗 <a href='https://t.me/SoloHunter3'>@SoloHunter3</a> | <a href='https://t.me/o_p_trick'>@o_p_trick</a></i>"
             )
 
             btn = InlineKeyboardMarkup()
