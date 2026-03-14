@@ -17,7 +17,6 @@ API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY    = "KINGOWAIS_OWNER"
 ADMIN_ID   = 7962481764
 
-# ── Upstash Redis REST ─────────────────────────────────────────────────────
 UPSTASH_URL   = "https://precise-coyote-67987.upstash.io"
 UPSTASH_TOKEN = "gQAAAAAAAQmTAAIncDI0YTVhNjYwOGJjMzk0NTIxYTYyYTA3MzM5YWY4ZmEyOHAyNjc5ODc"
 
@@ -26,8 +25,7 @@ def redis_set(key, value):
         r = requests.post(
             f"{UPSTASH_URL}/set/{key}",
             headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
-            json=value,
-            timeout=5
+            json=value, timeout=5
         )
         return r.json()
     except Exception as e:
@@ -46,27 +44,77 @@ def redis_get(key):
     except Exception as e:
         print(f"Redis GET error: {e}")
     return None
+def redis_sadd(set_key, member):
+    try:
+        requests.get(
+            f"{UPSTASH_URL}/sadd/{set_key}/{member}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+    except: pass
 
-# ── Config load/save ───────────────────────────────────────────────────────
+def redis_smembers(set_key):
+    try:
+        r = requests.get(
+            f"{UPSTASH_URL}/smembers/{set_key}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+        return r.json().get("result", [])
+    except:
+        return []
+
+def redis_hincrby(hash_key, field, amount=1):
+    try:
+        requests.get(
+            f"{UPSTASH_URL}/hincrby/{hash_key}/{field}/{amount}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+    except: pass
+
+def redis_hget(hash_key, field):
+    try:
+        r = requests.get(
+            f"{UPSTASH_URL}/hget/{hash_key}/{field}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+        return r.json().get("result", "0") or "0"
+    except:
+        return "0"
+
+def track_user(user):
+    uid = str(user.id)
+    name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    uname = f"@{user.username}" if user.username else "No username"
+    user_data = json.dumps({"id": user.id, "name": name, "username": uname, "joined": time.strftime("%Y-%m-%d %H:%M")})
+    redis_sadd("bot_users", uid)
+    try:
+        requests.get(
+            f"{UPSTASH_URL}/set/user:{uid}/{requests.utils.quote(user_data)}",
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            timeout=5
+        )
+    except: pass
+
+
 DEFAULT_CONFIG = {
     "channels": ["@wp_trick", "@SoloHunter3"],
-    "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details from the mainframe.",
+    "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details.",
     "bot_active": True,
     "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
-    "footer": "👑 Database by Owais &amp; Liaqat"
+    "footer": "👑 Made by OWAiS &amp; Liaqat"
 }
 
 def load_config():
     data = redis_get("bot_config")
     if data and isinstance(data, dict):
-        print("✅ Config loaded from Upstash Redis")
         return data
-    print("⚠️ Using default config")
     return DEFAULT_CONFIG.copy()
 
 def save_config():
     redis_set("bot_config", json.dumps(config))
-    print("✅ Config saved to Upstash Redis")
 
 config = load_config()
 
@@ -87,18 +135,45 @@ def set_webhook_auto():
     except Exception as e:
         print(f"❌ Webhook failed: {e}")
 
+# ── Network detector ───────────────────────────────────────────────────────
 def detectNetwork(num):
-    if not num: return "Unknown"
+    if not num: return "❓ Unknown"
     n = "".join(filter(str.isdigit, num))
     if n.startswith("92"): n = n[2:]
     if n.startswith("0"):  n = n[1:]
-    if n.startswith("30") or n.startswith("31"): return "Jazz"
-    if n.startswith("32"): return "Warid"
-    if n.startswith("33"): return "Ufone"
-    if n.startswith("34"): return "Telenor"
-    if n.startswith("35"): return "SCO"
-    return "Unknown"
+    prefixes = {
+        "30": "📶 Jazz", "31": "📶 Jazz", "32": "📶 Warid",
+        "33": "📶 Ufone", "34": "📶 Telenor", "35": "📶 SCO",
+        "300": "📶 Jazz", "301": "📶 Jazz", "302": "📶 Jazz",
+        "303": "📶 Jazz", "304": "📶 Jazz", "305": "📶 Jazz",
+        "306": "📶 Jazz", "307": "📶 Jazz", "308": "📶 Jazz",
+        "309": "📶 Jazz",
+        "310": "📶 Zong", "311": "📶 Zong", "312": "📶 Zong",
+        "313": "📶 Zong", "314": "📶 Zong", "315": "📶 Zong",
+        "316": "📶 Zong", "317": "📶 Zong", "318": "📶 Zong",
+        "319": "📶 Zong",
+    }
+    # 3-digit prefix check first
+    for prefix, network in prefixes.items():
+        if n.startswith(prefix):
+            return network
+    return "❓ Unknown"
 
+# ── Query type detector ────────────────────────────────────────────────────
+def detect_query_type(query):
+    clean = query.replace("-", "").replace(" ", "")
+    if len(clean) == 13 and clean.isdigit():
+        return "cnic"
+    elif clean.isdigit() and len(clean) >= 10:
+        return "phone"
+    return "unknown"
+
+def query_type_label(qtype):
+    if qtype == "cnic":   return "🪪 CNIC Lookup"
+    if qtype == "phone":  return "📱 Phone Lookup"
+    return "🔍 Unknown"
+
+# ── Subscription ───────────────────────────────────────────────────────────
 def get_unjoined_channels(user_id):
     unjoined = []
     for ch in config["channels"]:
@@ -125,6 +200,7 @@ def send_join_alert(chat_id, unjoined):
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
+# ── Admin panel ────────────────────────────────────────────────────────────
 def admin_panel_markup():
     markup = InlineKeyboardMarkup(row_width=2)
     toggle_text = "🔴 Bot OFF" if config["bot_active"] else "🟢 Bot ON"
@@ -135,6 +211,7 @@ def admin_panel_markup():
         InlineKeyboardButton("🔧 Maintenance Msg", callback_data="admin_maintenance"),
         InlineKeyboardButton("👣 Footer", callback_data="admin_footer"),
         InlineKeyboardButton("📊 Bot Status", callback_data="admin_status"),
+        InlineKeyboardButton("👥 Users List", callback_data="admin_users"),
     )
     return markup
 
@@ -160,12 +237,59 @@ def admin_cmd(message):
         return
     bot.send_message(message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
 
+
+@bot.message_handler(commands=["users"])
+def users_cmd(message):
+    if message.chat.type != "private": return
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "❌ You are not admin!")
+        return
+    wait = bot.reply_to(message, "⏳ Loading users...")
+    try:
+        user_ids = redis_smembers("bot_users")
+        total = len(user_ids)
+        if total == 0:
+            bot.edit_message_text("📊 No users yet!", chat_id=message.chat.id, message_id=wait.message_id)
+            return
+        # Build user list (max 50 recent)
+        user_list = ""
+        for i, uid in enumerate(user_ids[-50:], 1):
+            try:
+                r = requests.get(
+                    f"{UPSTASH_URL}/get/user:{uid}",
+                    headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+                    timeout=5
+                )
+                udata = r.json().get("result")
+                if udata:
+                    u = json.loads(udata)
+                    searches = redis_hget("user_searches", uid)
+                    user_list += f"{i}. {u['name']} | {u['username']} | 🔍{searches}\n"
+                else:
+                    user_list += f"{i}. ID: {uid}\n"
+            except:
+                user_list += f"{i}. ID: {uid}\n"
+
+        msg = (
+            f"<b>👥 BOT USERS</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 Total Users: <b>{total}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<code>{user_list}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Showing last 50 users</i>"
+        )
+        bot.edit_message_text(msg, chat_id=message.chat.id, message_id=wait.message_id)
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error: {e}", chat_id=message.chat.id, message_id=wait.message_id)
+
 @bot.message_handler(commands=["start"])
 def start_msg(message):
     if message.chat.type in ["group", "supergroup", "channel"]: return
+    track_user(message.from_user)
     if is_admin(message.from_user.id):
         bot.reply_to(message,
-            "<b>👑 Welcome Admin Owais!</b>\n\n"
+            "<b>👑 Welcome Admin OWAiS!</b>\n\n"
             "Use /admin to open Admin Panel.\n"
             "Or send any number/CNIC to search."
         )
@@ -178,27 +302,22 @@ def start_msg(message):
         f"<b>🛡️ WELCOME TO PRO DATABASE BOT</b>\n\n"
         f"Access Granted! ✅\n"
         f"{config['welcome_msg']}\n\n"
-        f"<i>⚡ Powered by Owais &amp; Liaqat</i>"
+        f"<i>⚡ Powered by OWAiS &amp; Liaqat</i>"
     )
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("admin_") and is_admin(c.from_user.id))
 def admin_callbacks(call):
     data = call.data
-
     if data == "admin_status":
         status   = "🟢 ACTIVE" if config["bot_active"] else "🔴 MAINTENANCE"
         channels = "\n".join(config["channels"]) if config["channels"] else "None"
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id,
-            f"<b>📊 BOT STATUS</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"Status: {status}\n"
-            f"Channels: {channels}\n"
+            f"<b>📊 BOT STATUS</b>\n━━━━━━━━━━━━━━━━━━━\n"
+            f"Status: {status}\nChannels: {channels}\n"
             f"Welcome: {config['welcome_msg'][:60]}...\n"
             f"Footer: {config['footer']}\n"
-            f"Maintenance: {config['maintenance_msg'][:60]}...\n"
         )
-
     elif data == "admin_toggle":
         config["bot_active"] = not config["bot_active"]
         save_config()
@@ -207,7 +326,6 @@ def admin_callbacks(call):
         try:
             bot.edit_message_text(admin_panel_text(), call.message.chat.id, call.message.message_id, reply_markup=admin_panel_markup())
         except: pass
-
     elif data == "admin_channels":
         bot.answer_callback_query(call.id)
         channels = "\n".join(config["channels"]) if config["channels"] else "None"
@@ -221,12 +339,10 @@ def admin_callbacks(call):
             f"<b>📢 CHANNELS</b>\n━━━━━━━━━━━━━━━━━━━\n{channels}\n━━━━━━━━━━━━━━━━━━━",
             reply_markup=markup
         )
-
     elif data == "admin_ch_add":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "add_channel"
         bot.send_message(call.message.chat.id, "Channel username bhejo (e.g. <code>@mychannel</code>):")
-
     elif data == "admin_ch_remove":
         bot.answer_callback_query(call.id)
         if not config["channels"]:
@@ -237,24 +353,29 @@ def admin_callbacks(call):
             markup.add(InlineKeyboardButton(f"❌ {ch}", callback_data=f"rmch_{ch}"))
         markup.add(InlineKeyboardButton("🔙 Back", callback_data="admin_channels"))
         bot.send_message(call.message.chat.id, "Konsa channel remove karna hai?", reply_markup=markup)
-
     elif data == "admin_welcome":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_welcome"
-        bot.send_message(call.message.chat.id,
-            f"<b>Current:</b>\n{config['welcome_msg']}\n\nNaya welcome message bhejo:")
-
+        bot.send_message(call.message.chat.id, f"<b>Current:</b>\n{config['welcome_msg']}\n\nNaya welcome message bhejo:")
     elif data == "admin_maintenance":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_maintenance"
-        bot.send_message(call.message.chat.id,
-            f"<b>Current:</b>\n{config['maintenance_msg']}\n\nNaya maintenance message bhejo:")
-
+        bot.send_message(call.message.chat.id, f"<b>Current:</b>\n{config['maintenance_msg']}\n\nNaya maintenance message bhejo:")
     elif data == "admin_footer":
         bot.answer_callback_query(call.id)
         pending_action[call.from_user.id] = "set_footer"
-        bot.send_message(call.message.chat.id,
-            f"<b>Current:</b>\n{config['footer']}\n\nNaya footer bhejo:")
+        bot.send_message(call.message.chat.id, f"<b>Current:</b>\n{config['footer']}\n\nNaya footer bhejo:")
+    elif data == "admin_users":
+        bot.answer_callback_query(call.id)
+        try:
+            user_ids = redis_smembers("bot_users")
+            total = len(user_ids)
+            bot.send_message(call.message.chat.id,
+                f"<b>👥 Total Users: {total}</b>\n"
+                f"Use /users command for full list with details."
+            )
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Error: {e}")
 
     elif data == "admin_back":
         bot.answer_callback_query(call.id)
@@ -271,12 +392,14 @@ def remove_channel_cb(call):
     else:
         bot.answer_callback_query(call.id, "Channel nahi mila!")
 
+# ── Main handler ───────────────────────────────────────────────────────────
 @bot.message_handler(func=lambda m: True)
 def fetch_data(message):
     if message.chat.type in ["group", "supergroup", "channel"]: return
 
     user_id = message.from_user.id
 
+    # Admin pending actions
     if is_admin(user_id) and user_id in pending_action:
         action = pending_action.pop(user_id)
         text   = message.text.strip()
@@ -312,9 +435,22 @@ def fetch_data(message):
             send_join_alert(message.chat.id, unjoined)
             return
 
-    query    = message.text.strip()
-    wait_msg = bot.reply_to(message, "<b>⏳ Scanning King OwAiS Mainframe...</b>")
-    params   = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
+    track_user(message.from_user)
+    redis_hincrby("user_searches", str(user_id))
+    query  = message.text.strip()
+    qtype  = detect_query_type(query)
+    qlabel = query_type_label(qtype)
+
+    # ── Searching message ─────────────────────────────────────────────────
+    wait_msg = bot.reply_to(message,
+        f"<b>🔎 Searching Database...</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"📝 Query: <code>{query}</code>\n"
+        f"📋 Type: {qlabel}\n"
+        f"⏳ Please wait..."
+    )
+
+    params = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
 
     try:
         res  = requests.get(API_URL, params=params, timeout=15)
@@ -333,8 +469,15 @@ def fetch_data(message):
                 records = data["records"]
 
         if not records:
-            bot.edit_message_text("<b>⚠️ NO RECORD FOUND IN DATABASE!</b>",
-                chat_id=message.chat.id, message_id=wait_msg.message_id)
+            bot.edit_message_text(
+                f"<b>🔎 SEARCH COMPLETE</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"📝 Query: <code>{query}</code>\n"
+                f"📋 Type: {qlabel}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>NO RECORD FOUND IN DATABASE!</b>",
+                chat_id=message.chat.id, message_id=wait_msg.message_id
+            )
             return
 
         def is_censored(rec):
@@ -344,8 +487,13 @@ def fetch_data(message):
 
         if all(is_censored(r) for r in records):
             bot.edit_message_text(
-                "<b>⚠️ NO RECORD FOUND IN DATABASE!</b>\n\n<i>This number/CNIC has no data in our mainframe.</i>",
-                chat_id=message.chat.id, message_id=wait_msg.message_id)
+                f"<b>🔎 SEARCH COMPLETE</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"📝 Query: <code>{query}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>NO RECORD FOUND IN DATABASE!</b>",
+                chat_id=message.chat.id, message_id=wait_msg.message_id
+            )
             return
 
         bot.delete_message(message.chat.id, wait_msg.message_id)
@@ -369,65 +517,50 @@ def fetch_data(message):
             ph = rec.get("phone") or rec.get("mobile")
             if ph: persons[key]["numbers"].add(str(ph))
 
-        full_msg = ""
-        map_url = None
-        static_url = None
-        file_num = 0
-
         for p in persons.values():
-            file_num += 1
             sims_list = sorted(p["numbers"])
             sims_text = ""
             for i, num in enumerate(sims_list, 1):
-                sims_text += f"{i}. <code>{num}</code> - {detectNetwork(num)}\n"
-
-            father_display = query if p["father"] == "N/A" else p["father"]
-
-            block = (
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"<b>👤 FILE #{file_num} — PERSONAL DATA</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"🔍 SEARCHED: <code>{query}</code>\n"
-                f"👤 NAME: <b>{p['name']}</b>\n"
-                f"🪪 CNIC: <code>{p['cnic']}</code>\n"
-                f"👨 FATHER: {father_display}\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"<b>📊 SIMS ({len(sims_list)})</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"{sims_text}"
-            )
+                sims_text += f"  {i}) <code>{num}</code> — {detectNetwork(num)}\n"
 
             address = p["address"]
+
+            # ── Result message ─────────────────────────────────────────
+            result = (
+                f"<b>🔎 PHONE/CNIC Information</b>\n\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>Name:</b> {p['name']}\n"
+                f"🪪 <b>CNIC:</b> <code>{p['cnic']}</code>\n"
+                f"📍 <b>Address:</b> {address}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📱 <b>Registered Numbers ({len(sims_list)}):</b>\n"
+                f"{sims_text}\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"<i>✨ {config['footer']}</i>\n"
+                f"<i>🔗 @wp_trick | @SoloHunter3</i>"
+            )
+
+            btn = InlineKeyboardMarkup()
+            map_url = None
+            static_url = None
+
             if address != "N/A":
-                enc = urllib.parse.quote(address)
-                if not map_url:
-                    map_url    = f"https://maps.google.com/maps?q={enc}"
-                    static_url = (
-                        f"https://maps.googleapis.com/maps/api/staticmap"
-                        f"?center={enc}&zoom=14&size=600x300&scale=2"
-                        f"&markers=color:red%7C{enc}"
-                    )
-                block += (
-                    f"━━━━━━━━━━━━━━━━━━━\n"
-                    f"<b>📍 LOCATION</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━\n"
-                    f"📌 {address}\n"
+                enc        = urllib.parse.quote(address)
+                map_url    = f"https://maps.google.com/maps?q={enc}"
+                static_url = (
+                    f"https://maps.googleapis.com/maps/api/staticmap"
+                    f"?center={enc}&zoom=14&size=600x300&scale=2"
+                    f"&markers=color:red%7C{enc}"
                 )
-            full_msg += block
+                btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
 
-        full_msg += f"━━━━━━━━━━━━━━━━━━━\n<i>{config['footer']}</i>"
-
-        btn = InlineKeyboardMarkup()
-        if map_url:
-            btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
-
-        if map_url and static_url:
-            try:
-                bot.send_photo(message.chat.id, photo=static_url, caption=full_msg, reply_markup=btn, parse_mode="HTML")
-            except:
-                bot.send_message(message.chat.id, full_msg, reply_markup=btn, disable_web_page_preview=True)
-        else:
-            bot.send_message(message.chat.id, full_msg, disable_web_page_preview=True)
+            if map_url and static_url:
+                try:
+                    bot.send_photo(message.chat.id, photo=static_url, caption=result, reply_markup=btn, parse_mode="HTML")
+                except:
+                    bot.send_message(message.chat.id, result, reply_markup=btn, disable_web_page_preview=True)
+            else:
+                bot.send_message(message.chat.id, result, disable_web_page_preview=True)
 
     except Exception as e:
         print(f"Error: {e}")
