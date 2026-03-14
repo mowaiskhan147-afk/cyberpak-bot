@@ -567,6 +567,273 @@ def fetch_data(message):
                 chat_id=message.chat.id, message_id=wait_msg.message_id)
         except: pass
 
+# ═══════════════════════════════════════════════════
+# 👑 API USER MANAGEMENT (username-based access)
+# ═══════════════════════════════════════════════════
+
+USERS_API = "https://vercel-api1-jade.vercel.app/api/users"
+ADMIN_SECRET = "kingowais-secret-2025"
+
+def call_users_api(action, **kwargs):
+    """Call Vercel users API with admin secret."""
+    try:
+        payload = {"admin_secret": ADMIN_SECRET, "action": action, **kwargs}
+        r = requests.post(USERS_API, json=payload, timeout=10)
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def call_users_api_get(username):
+    """Check if username has access."""
+    try:
+        r = requests.get(f"{USERS_API}?username={username}", timeout=10)
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# /adduser @username 30
+@bot.message_handler(commands=["adduser"])
+def cmd_adduser(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /adduser @username [days]\nExample: /adduser @owaisking 30\nDays=0 means lifetime.")
+    username = parts[1].replace("@", "").strip()
+    days = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else 30
+    result = call_users_api("add", username=username, days=days, label=username)
+    if result.get("ok"):
+        expiry = result.get("expires_at", "never")
+        bot.reply_to(message,
+            f"✅ <b>User Added!</b>\n\n"
+            f"👤 Username: <code>@{username}</code>\n"
+            f"📅 Days: <b>{days}</b>\n"
+            f"⏰ Expires: <b>{expiry[:10] if expiry != 'never' else '♾️ Lifetime'}</b>\n\n"
+            f"🔗 API Link:\n"
+            f"<code>https://vercel-api1-jade.vercel.app/api/usersearch?username={username}&phone=03XXXXXXXXX</code>",
+            parse_mode="HTML"
+        )
+    else:
+        bot.reply_to(message, f"❌ Error: {result.get('error', 'Unknown')}")
+
+# /removeuser @username
+@bot.message_handler(commands=["removeuser"])
+def cmd_removeuser(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /removeuser @username")
+    username = parts[1].replace("@", "").strip()
+    result = call_users_api("remove", username=username)
+    if result.get("ok"):
+        bot.reply_to(message, f"🗑️ <b>@{username}</b> removed successfully!", parse_mode="HTML")
+    else:
+        bot.reply_to(message, f"❌ Error: {result.get('error', 'Unknown')}")
+
+# /extenduser @username 15
+@bot.message_handler(commands=["extenduser"])
+def cmd_extenduser(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 3:
+        return bot.reply_to(message, "⚠️ Usage: /extenduser @username days\nExample: /extenduser @owaisking 15")
+    username = parts[1].replace("@", "").strip()
+    days = int(parts[2]) if parts[2].isdigit() else 30
+    result = call_users_api("extend", username=username, days=days)
+    if result.get("ok"):
+        bot.reply_to(message,
+            f"⏩ <b>Extended!</b>\n\n"
+            f"👤 @{username}\n"
+            f"➕ Added: <b>{days} days</b>\n"
+            f"⏰ New Expiry: <b>{result.get('new_expiry', 'N/A')[:10]}</b>",
+            parse_mode="HTML"
+        )
+    else:
+        bot.reply_to(message, f"❌ Error: {result.get('error', 'Unknown')}")
+
+# /toggleuser @username
+@bot.message_handler(commands=["toggleuser"])
+def cmd_toggleuser(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /toggleuser @username")
+    username = parts[1].replace("@", "").strip()
+    result = call_users_api("toggle", username=username)
+    if result.get("ok"):
+        status = "🟢 Enabled" if result.get("active") else "🔴 Disabled"
+        bot.reply_to(message, f"🔄 <b>@{username}</b> is now <b>{status}</b>", parse_mode="HTML")
+    else:
+        bot.reply_to(message, f"❌ Error: {result.get('error', 'Unknown')}")
+
+# /apiusers — list all API users
+@bot.message_handler(commands=["apiusers"])
+def cmd_apiusers(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    result = call_users_api("list")
+    if not result.get("ok"):
+        return bot.reply_to(message, f"❌ Error: {result.get('error')}")
+    users = result.get("users", [])
+    if not users:
+        return bot.reply_to(message, "📭 No API users registered yet.")
+    lines = [f"👥 <b>API Users</b> ({len(users)} total)\n"]
+    for u in users:
+        status = "🟢" if u.get("active") else "🔴"
+        days = u.get("days_left")
+        exp = f"{days}d left" if days is not None else "♾️"
+        lines.append(f"{status} @{u['username']} — <b>{exp}</b>")
+    bot.reply_to(message, "\n".join(lines), parse_mode="HTML")
+
+# /checkuser @username
+@bot.message_handler(commands=["checkuser"])
+def cmd_checkuser(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /checkuser @username")
+    username = parts[1].replace("@", "").strip()
+    result = call_users_api_get(username)
+    if result.get("ok"):
+        days = result.get("days_left")
+        exp_str = f"{days} din baqi" if days is not None else "♾️ Lifetime"
+        bot.reply_to(message,
+            f"✅ <b>@{username}</b>\n\n"
+            f"📌 Status: 🟢 Active\n"
+            f"⏰ Expiry: <b>{result.get('expires_at', 'N/A')[:10]}</b>\n"
+            f"📅 Remaining: <b>{exp_str}</b>",
+            parse_mode="HTML"
+        )
+    else:
+        bot.reply_to(message, f"❌ {result.get('error', 'Not found')}")
+
+# /apicmds — show API user management commands
+@bot.message_handler(commands=["apicmds"])
+def cmd_apicmds(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    bot.reply_to(message,
+        "👑 <b>API User Management Commands</b>\n\n"
+        "➕ /adduser @user [days] — Add user (days=0 = lifetime)\n"
+        "🗑️ /removeuser @user — Remove user\n"
+        "⏩ /extenduser @user [days] — Extend expiry\n"
+        "🔄 /toggleuser @user — Enable/disable\n"
+        "✅ /checkuser @user — Check status\n"
+        "👥 /apiusers — List all users\n\n"
+        "🔗 <b>API Endpoint:</b>\n"
+        "<code>https://vercel-api1-jade.vercel.app/api/usersearch?username=USERNAME&phone=03XXXXXXXXX</code>",
+        parse_mode="HTML"
+    )
+
+# ═══════════════════════════════════════════════════
+# 🔑 DB KEY GENERATOR via bot
+# ═══════════════════════════════════════════════════
+
+DBKEYGEN_API = "https://vercel-api1-jade.vercel.app/api/dbkeygen"
+
+# ── Parse time string: "30d", "6h", "1d12h", "2d" ─────────────────────────
+def parse_time(s):
+    """Returns (days, hours) from string like '30d', '6h', '1d6h', '2d12h'"""
+    import re
+    s = s.lower().strip()
+    d = int(m.group(1)) if (m := re.search(r'(\d+)d', s)) else 0
+    h = int(m.group(1)) if (m := re.search(r'(\d+)h', s)) else 0
+    return d, h
+
+# /genkey label time
+# Examples:
+#   /genkey owaisking 30d
+#   /genkey Zoya 6h
+#   /genkey noor 1d12h
+#   /genkey @HiddenXnoob 7d
+@bot.message_handler(commands=["genkey"])
+def cmd_genkey(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 3:
+        return bot.reply_to(message,
+            "⚠️ <b>Usage:</b> /genkey &lt;label&gt; &lt;time&gt;\n\n"
+            "<b>Examples:</b>\n"
+            "/genkey @owaisking 30d\n"
+            "/genkey Zoya 6h\n"
+            "/genkey noor 1d12h\n"
+            "/genkey @HiddenXnoob 7d",
+            parse_mode="HTML"
+        )
+
+    label     = parts[1].replace("@", "").strip()
+    time_str  = parts[2]
+    days, hrs = parse_time(time_str)
+
+    if days == 0 and hrs == 0:
+        return bot.reply_to(message,
+            "⚠️ Invalid time! Use like: 30d / 6h / 1d12h"
+        )
+
+    wait = bot.reply_to(message, "⏳ Generating key...")
+    try:
+        r = requests.post(DBKEYGEN_API, json={
+            "admin_secret": ADMIN_SECRET,
+            "label":        label,
+            "days":         days,
+            "hours":        hrs
+        }, timeout=10)
+        data = r.json()
+    except Exception as e:
+        return bot.edit_message_text(f"❌ Error: {e}", message.chat.id, wait.message_id)
+
+    if not data.get("key"):
+        return bot.edit_message_text(
+            f"❌ Failed: {data.get('error','Unknown error')}",
+            message.chat.id, wait.message_id
+        )
+
+    key      = data["key"]
+    expires  = data.get("expires", "N/A")
+    expiry   = data.get("expiry", time_str)   # e.g. "1d 12h"
+    exp_dt   = expires[:16].replace("T", " ") if expires != "N/A" else "N/A"
+
+    bot.edit_message_text(
+        f"✅ <b>Key Generated!</b>\n\n"
+        f"👤 Label : <code>{label}</code>\n"
+        f"🔑 Key   : <code>{key}</code>\n"
+        f"⏱ Expiry: <b>{expiry}</b>\n"
+        f"📅 Expires: <b>{exp_dt} UTC</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔗 <b>CNIC:</b>\n"
+        f"<code>https://vercel-api1-jade.vercel.app/api/dbsearch?cnic=XXXXXXXXXXXXX&apikey={key}&tguser={label}</code>\n\n"
+        f"📱 <b>Phone:</b>\n"
+        f"<code>https://vercel-api1-jade.vercel.app/api/dbsearch?phone=03XXXXXXXXX&apikey={key}&tguser={label}</code>",
+        message.chat.id, wait.message_id,
+        parse_mode="HTML"
+    )
+
+@bot.message_handler(commands=["keycmds"])
+def cmd_keycmds(message):
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    bot.reply_to(message,
+        "🔑 <b>DB Key Commands</b>\n\n"
+        "➕ /genkey &lt;label&gt; &lt;time&gt;\n\n"
+        "<b>Time formats:</b>\n"
+        "  30d  → 30 days\n"
+        "  6h   → 6 hours\n"
+        "  1d12h → 1 day 12 hours\n\n"
+        "<b>Examples:</b>\n"
+        "  /genkey @owaisking 30d\n"
+        "  /genkey Zoya 6h\n"
+        "  /genkey noor 1d12h\n\n"
+        "📋 <b>Key format:</b> <code>KODB-XXXX-XXXX-XXXX</code>\n"
+        "🔗 <b>Usage:</b>\n"
+        "<code>...dbsearch?phone=03xxx&apikey=KODB-xxx&tguser=owaisking</code>",
+        parse_mode="HTML"
+    )
+
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
