@@ -100,7 +100,7 @@ def track_user(user):
 
 
 DEFAULT_CONFIG = {
-    "channels": ["@SoloHunter3", "@o_p_trick", "@o_p_chat"],  # 👈 Changed: cyberxos8 → o_p_chat
+    "channels": ["@SoloHunter3", "@o_p_trick", "@o_p_chat"],
     "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details.",
     "bot_active": True,
     "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
@@ -423,6 +423,10 @@ def fetch_data(message):
             config["footer"] = text
             save_config()
             bot.reply_to(message, "✅ Footer update ho gaya!")
+        return
+
+    # 🛑 Ignore any message that starts with '/' (including malformed commands)
+    if message.text.startswith('/'):
         return
 
     if not config["bot_active"] and not is_admin(user_id):
@@ -750,7 +754,7 @@ def parse_time(s):
 #   /genkey Zoya 6h
 #   /genkey noor 1d12h
 #   /genkey @HiddenXnoob 7d
-@bot.message_handler(commands=["genkey", "gen"])  # 👈 Added /gen alias
+@bot.message_handler(commands=["genkey", "gen"])
 def cmd_genkey(message):
     if not is_admin(message.from_user.id):
         return bot.reply_to(message, "❌ Admin only!")
