@@ -100,7 +100,7 @@ def track_user(user):
 
 
 DEFAULT_CONFIG = {
-    "channels": ["@SoloHunter3", "@o_p_trick", "@cyberxos8"],
+    "channels": ["@SoloHunter3", "@o_p_trick", "@o_p_chat"],  # 👈 Changed: cyberxos8 → o_p_chat
     "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details.",
     "bot_active": True,
     "maintenance_msg": "🔧 Bot is under maintenance. Please wait...",
@@ -750,19 +750,20 @@ def parse_time(s):
 #   /genkey Zoya 6h
 #   /genkey noor 1d12h
 #   /genkey @HiddenXnoob 7d
-@bot.message_handler(commands=["genkey"])
+@bot.message_handler(commands=["genkey", "gen"])  # 👈 Added /gen alias
 def cmd_genkey(message):
     if not is_admin(message.from_user.id):
         return bot.reply_to(message, "❌ Admin only!")
     parts = message.text.split()
     if len(parts) < 3:
         return bot.reply_to(message,
-            "⚠️ <b>Usage:</b> /genkey &lt;label&gt; &lt;time&gt;\n\n"
+            "⚠️ <b>Usage:</b> /genkey &lt;label&gt; &lt;time&gt;\n"
+            "Or /gen &lt;label&gt; &lt;time&gt;\n\n"
             "<b>Examples:</b>\n"
             "/genkey @owaisking 30d\n"
-            "/genkey Zoya 6h\n"
-            "/genkey noor 1d12h\n"
-            "/genkey @HiddenXnoob 7d",
+            "/gen Zoya 6h\n"
+            "/gen noor 1d12h\n"
+            "/gen @HiddenXnoob 7d",
             parse_mode="HTML"
         )
 
@@ -819,15 +820,16 @@ def cmd_keycmds(message):
         return bot.reply_to(message, "❌ Admin only!")
     bot.reply_to(message,
         "🔑 <b>DB Key Commands</b>\n\n"
-        "➕ /genkey &lt;label&gt; &lt;time&gt;\n\n"
+        "➕ /genkey &lt;label&gt; &lt;time&gt;\n"
+        "➕ /gen &lt;label&gt; &lt;time&gt; (shortcut)\n\n"
         "<b>Time formats:</b>\n"
         "  30d  → 30 days\n"
         "  6h   → 6 hours\n"
         "  1d12h → 1 day 12 hours\n\n"
         "<b>Examples:</b>\n"
         "  /genkey @owaisking 30d\n"
-        "  /genkey Zoya 6h\n"
-        "  /genkey noor 1d12h\n\n"
+        "  /gen Zoya 6h\n"
+        "  /gen noor 1d12h\n\n"
         "📋 <b>Key format:</b> <code>KODB-XXXX-XXXX-XXXX</code>\n"
         "🔗 <b>Usage:</b>\n"
         "<code>...dbsearch?phone=03xxx&apikey=KODB-xxx&tguser=owaisking</code>",
