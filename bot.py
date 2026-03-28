@@ -13,8 +13,8 @@ import json
 # ==========================================
 
 BOT_TOKEN  = "8788981804:AAFqqCZUWXQt2cfU1lF8HdyyfufGvcNgKss"
-API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
-API_KEY    = "KINGOWAIS_OWNER"
+API_URL    = "https://cyber-pak-info2.vercel.app/search"   # <-- NEW API
+API_KEY    = "ZEXX@_VIP"                                   # <-- NEW KEY
 ADMIN_ID   = 7962481764
 
 UPSTASH_URL   = "https://precise-coyote-67987.upstash.io"
@@ -44,6 +44,7 @@ def redis_get(key):
     except Exception as e:
         print(f"Redis GET error: {e}")
     return None
+
 def redis_sadd(set_key, member):
     try:
         requests.get(
@@ -98,7 +99,7 @@ def track_user(user):
         )
     except: pass
 
-
+# Config management
 DEFAULT_CONFIG = {
     "channels": ["@SoloHunter3", "@o_p_trick", "@o_p_chat"],
     "welcome_msg": "Send me any Pakistani Number (e.g., <code>03xxxxxxxxx</code>) or 13-digit CNIC to fetch details.",
@@ -118,8 +119,12 @@ def save_config():
 
 config = load_config()
 
+# Flask webhook setup
 PORT         = int(os.environ.get("PORT", 5000))
-WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")   # For Render
+# For Replit, we use the default URL: https://your-project.replit.app
+if not WEBHOOK_HOST:
+    WEBHOOK_HOST = f"https://{os.environ.get('REPL_SLUG', 'cyberpak-bot')}.{os.environ.get('REPL_OWNER', 'replit')}.repl.co"
 WEBHOOK_URL  = f"{WEBHOOK_HOST}/{BOT_TOKEN}"
 
 app = Flask(__name__)
@@ -153,7 +158,6 @@ def detectNetwork(num):
         "316": "📶 Zong", "317": "📶 Zong", "318": "📶 Zong",
         "319": "📶 Zong",
     }
-    # 3-digit prefix check first
     for prefix, network in prefixes.items():
         if n.startswith(prefix):
             return network
@@ -229,7 +233,7 @@ def admin_panel_text():
 
 pending_action = {}
 
-# ========== COMMAND HANDLERS (FIRST) ==========
+# ========== COMMAND HANDLERS ==========
 
 @bot.message_handler(commands=["admin"])
 def admin_cmd(message):
@@ -238,7 +242,6 @@ def admin_cmd(message):
         bot.reply_to(message, "❌ You are not admin!")
         return
     bot.send_message(message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
-
 
 @bot.message_handler(commands=["users"])
 def users_cmd(message):
@@ -253,7 +256,6 @@ def users_cmd(message):
         if total == 0:
             bot.edit_message_text("📊 No users yet!", chat_id=message.chat.id, message_id=wait.message_id)
             return
-        # Build user list (max 50 recent)
         user_list = ""
         for i, uid in enumerate(user_ids[-50:], 1):
             try:
@@ -307,13 +309,11 @@ def start_msg(message):
         f"<i>⚡ Powered by OWAiS &amp; Liaqat</i>"
     )
 
-# ── API USER MANAGEMENT ─────────────────────────────────────────
-
+# ── API USER MANAGEMENT (unchanged) ─────────────────────────────────────────
 USERS_API = "https://vercel-api1-jade.vercel.app/api/users"
 ADMIN_SECRET = "kingowais-secret-2025"
 
 def call_users_api(action, **kwargs):
-    """Call Vercel users API with admin secret."""
     try:
         payload = {"admin_secret": ADMIN_SECRET, "action": action, **kwargs}
         r = requests.post(USERS_API, json=payload, timeout=10)
@@ -322,7 +322,6 @@ def call_users_api(action, **kwargs):
         return {"ok": False, "error": str(e)}
 
 def call_users_api_get(username):
-    """Check if username has access."""
     try:
         r = requests.get(f"{USERS_API}?username={username}", timeout=10)
         return r.json()
@@ -460,12 +459,10 @@ def cmd_apicmds(message):
         parse_mode="HTML"
     )
 
-# ── DB KEY GENERATOR ─────────────────────────────────────────
-
+# ── DB KEY GENERATOR (unchanged) ─────────────────────────────────────────
 DBKEYGEN_API = "https://vercel-api1-jade.vercel.app/api/dbkeygen"
 
 def parse_time(s):
-    """Returns (days, hours) from string like '30d', '6h', '1d6h', '2d12h'"""
     import re
     s = s.lower().strip()
     d = int(m.group(1)) if (m := re.search(r'(\d+)d', s)) else 0
@@ -488,39 +485,31 @@ def cmd_genkey(message):
             "/gen @HiddenXnoob 7d",
             parse_mode="HTML"
         )
-
-    label     = parts[1].replace("@", "").strip()
-    time_str  = parts[2]
+    label = parts[1].replace("@", "").strip()
+    time_str = parts[2]
     days, hrs = parse_time(time_str)
-
     if days == 0 and hrs == 0:
-        return bot.reply_to(message,
-            "⚠️ Invalid time! Use like: 30d / 6h / 1d12h"
-        )
-
+        return bot.reply_to(message, "⚠️ Invalid time! Use like: 30d / 6h / 1d12h")
     wait = bot.reply_to(message, "⏳ Generating key...")
     try:
         r = requests.post(DBKEYGEN_API, json={
             "admin_secret": ADMIN_SECRET,
-            "label":        label,
-            "days":         days,
-            "hours":        hrs
+            "label": label,
+            "days": days,
+            "hours": hrs
         }, timeout=10)
         data = r.json()
     except Exception as e:
         return bot.edit_message_text(f"❌ Error: {e}", message.chat.id, wait.message_id)
-
     if not data.get("key"):
         return bot.edit_message_text(
             f"❌ Failed: {data.get('error','Unknown error')}",
             message.chat.id, wait.message_id
         )
-
-    key      = data["key"]
-    expires  = data.get("expires", "N/A")
-    expiry   = data.get("expiry", time_str)
-    exp_dt   = expires[:16].replace("T", " ") if expires != "N/A" else "N/A"
-
+    key = data["key"]
+    expires = data.get("expires", "N/A")
+    expiry = data.get("expiry", time_str)
+    exp_dt = expires[:16].replace("T", " ") if expires != "N/A" else "N/A"
     bot.edit_message_text(
         f"✅ <b>Key Generated!</b>\n\n"
         f"👤 Label : <code>{label}</code>\n"
@@ -646,15 +635,11 @@ def remove_channel_cb(call):
     else:
         bot.answer_callback_query(call.id, "Channel nahi mila!")
 
-# ========== MAIN MESSAGE HANDLER (LAST) ==========
+# ========== MAIN MESSAGE HANDLER (with new API) ==========
 @bot.message_handler(func=lambda m: True)
 def fetch_data(message):
     if message.chat.type in ["group", "supergroup", "channel"]: return
-
-    # If message starts with '/', it should have been caught by a command handler.
-    # If it reaches here, ignore it.
-    if message.text.startswith('/'):
-        return
+    if message.text.startswith('/'): return   # Ignore commands
 
     user_id = message.from_user.id
 
@@ -709,23 +694,26 @@ def fetch_data(message):
         f"⏳ Please wait..."
     )
 
+    # Prepare parameters for the new API
     params = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
 
     try:
-        res  = requests.get(API_URL, params=params, timeout=15)
+        res = requests.get(API_URL, params=params, timeout=15)
         data = res.json()
 
+        # The new API returns something like:
+        # {"success": true, "data": [{"name": "...", "cnic": "...", ...}]}
+        # We'll try to extract records
         records = None
         if data.get("success"):
-            d = data.get("data", {})
-            if isinstance(d, dict):
-                dd = d.get("data", {})
-                if isinstance(dd, dict) and "records" in dd:
-                    records = dd["records"]
-                elif "records" in d:
-                    records = d["records"]
-            if records is None and "records" in data:
-                records = data["records"]
+            # data could be a list or an object with "data" field
+            d = data.get("data")
+            if isinstance(d, list):
+                records = d
+            elif isinstance(d, dict):
+                records = d.get("records", [])
+        elif isinstance(data, list):
+            records = data
 
         if not records:
             bot.edit_message_text(
@@ -739,6 +727,7 @@ def fetch_data(message):
             )
             return
 
+        # Check if all records are censored (all fields are "*" or empty)
         def is_censored(rec):
             vals = [str(rec.get("full_name","") or ""), str(rec.get("phone","") or ""), str(rec.get("cnic","") or "")]
             real = [v for v in vals if v.strip()]
