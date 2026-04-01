@@ -709,24 +709,40 @@ def fetch_data(message):
         f"⏳ Please wait..."
     )
 
-    params = {"key": API_KEY, "phone": query.replace("-", "").replace(" ", "")}
+    # API Call with correct parameters
+    params = {
+        "phone": query.replace("-", "").replace(" ", ""),
+        "key": API_KEY
+    }
 
     try:
         res  = requests.get(API_URL, params=params, timeout=15)
         data = res.json()
+        print(f"API Response: {data}")  # Debug log
 
         records = None
-        if data.get("success"):
+        
+        # Handle different response structures
+        if data.get("success") or data.get("status") == "success":
             d = data.get("data", {})
             if isinstance(d, dict):
+                # Check for records in data.data
                 dd = d.get("data", {})
                 if isinstance(dd, dict) and "records" in dd:
                     records = dd["records"]
                 elif "records" in d:
                     records = d["records"]
+                # Also check if data itself contains records directly
+                elif "records" in data:
+                    records = data["records"]
+            elif isinstance(d, list):
+                records = d  # Sometimes data is directly a list
+            
+            # Alternative: check if response has records at root level
             if records is None and "records" in data:
                 records = data["records"]
-
+        
+        # If no records found
         if not records:
             bot.edit_message_text(
                 f"<b>🔎 SEARCH COMPLETE</b>\n"
@@ -739,6 +755,7 @@ def fetch_data(message):
             )
             return
 
+        # Check if all records are censored (all asterisks)
         def is_censored(rec):
             vals = [str(rec.get("full_name","") or ""), str(rec.get("phone","") or ""), str(rec.get("cnic","") or "")]
             real = [v for v in vals if v.strip()]
@@ -755,11 +772,13 @@ def fetch_data(message):
             )
             return
 
+        # Delete wait message and send results
         bot.delete_message(message.chat.id, wait_msg.message_id)
 
         def clr(v):
             return v if v and str(v).lower() not in ("none", "n/a", "") else "N/A"
 
+        # Merge records to get best data
         merged = {"name": "N/A", "cnic": "N/A", "address": "N/A", "father": "N/A", "numbers": set()}
         for rec in records:
             name    = clr(rec.get("full_name") or rec.get("name") or "")
@@ -773,55 +792,82 @@ def fetch_data(message):
             if father  != "N/A": merged["father"]  = father
             if ph: merged["numbers"].add(str(ph))
 
-        for p in [merged]:
-            sims_list = sorted(p["numbers"])
-            sims_text = ""
-            for i, num in enumerate(sims_list, 1):
-                sims_text += f"  {i}) <code>{num}</code> — {detectNetwork(num)}\n"
+        # Build result message
+        sims_list = sorted(merged["numbers"])
+        sims_text = ""
+        for i, num in enumerate(sims_list, 1):
+            sims_text += f"  {i}) <code>{num}</code> — {detectNetwork(num)}\n"
 
-            address = p["address"]
+        address = merged["address"]
 
-            result = (
-                f"<b>🔎 PHONE/CNIC Information</b>\n\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>Name:</b> {p['name']}\n"
-                f"🪪 <b>CNIC:</b> <code>{p['cnic']}</code>\n"
-                f"📍 <b>Address:</b> {address}\n"
-                f"━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📱 <b>Registered Numbers ({len(sims_list)}):</b>\n"
-                f"{sims_text}\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"<i>✨ {config['footer']}</i>\n"
-                f"<i>🔗 <a href='https://t.me/SoloHunter3'>@SoloHunter3</a> | <a href='https://t.me/o_p_trick'>@o_p_trick</a></i>"
+        result = (
+            f"<b>🔎 PHONE/CNIC Information</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Name:</b> {merged['name']}\n"
+            f"🪪 <b>CNIC:</b> <code>{merged['cnic']}</code>\n"
+            f"📍 <b>Address:</b> {address}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📱 <b>Registered Numbers ({len(sims_list)}):</b>\n"
+            f"{sims_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>✨ {config['footer']}</i>\n"
+            f"<i>🔗 <a href='https://t.me/SoloHunter3'>@SoloHunter3</a> | <a href='https://t.me/o_p_trick'>@o_p_trick</a></i>"
+        )
+
+        btn = InlineKeyboardMarkup()
+        map_url = None
+        static_url = None
+
+        if address != "N/A":
+            enc        = urllib.parse.quote(address)
+            map_url    = f"https://maps.google.com/maps?q={enc}"
+            static_url = (
+                f"https://maps.googleapis.com/maps/api/staticmap"
+                f"?center={enc}&zoom=14&size=600x300&scale=2"
+                f"&markers=color:red%7C{enc}"
             )
+            btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
 
-            btn = InlineKeyboardMarkup()
-            map_url = None
-            static_url = None
+        # Send result with or without map
+        if map_url and static_url:
+            try:
+                bot.send_photo(message.chat.id, photo=static_url, caption=result, reply_markup=btn, parse_mode="HTML")
+            except Exception as e:
+                print(f"Map error: {e}")
+                bot.send_message(message.chat.id, result, reply_markup=btn, disable_web_page_preview=True)
+        else:
+            bot.send_message(message.chat.id, result, disable_web_page_preview=True)
 
-            if address != "N/A":
-                enc        = urllib.parse.quote(address)
-                map_url    = f"https://maps.google.com/maps?q={enc}"
-                static_url = (
-                    f"https://maps.googleapis.com/maps/api/staticmap"
-                    f"?center={enc}&zoom=14&size=600x300&scale=2"
-                    f"&markers=color:red%7C{enc}"
-                )
-                btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
-
-            if map_url and static_url:
-                try:
-                    bot.send_photo(message.chat.id, photo=static_url, caption=result, reply_markup=btn, parse_mode="HTML")
-                except:
-                    bot.send_message(message.chat.id, result, reply_markup=btn, disable_web_page_preview=True)
-            else:
-                bot.send_message(message.chat.id, result, disable_web_page_preview=True)
-
-    except Exception as e:
-        print(f"Error: {e}")
+    except requests.exceptions.Timeout:
         try:
-            bot.edit_message_text("<b>❌ API ERROR:</b> Server is busy or offline.",
-                chat_id=message.chat.id, message_id=wait_msg.message_id)
+            bot.edit_message_text(
+                f"<b>❌ TIMEOUT ERROR</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"⏱ API took too long to respond.\n"
+                f"Please try again later.",
+                chat_id=message.chat.id, message_id=wait_msg.message_id
+            )
+        except: pass
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Request Error: {e}")
+        try:
+            bot.edit_message_text(
+                f"<b>❌ CONNECTION ERROR</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"Could not connect to API.\n"
+                f"Error: {str(e)[:100]}",
+                chat_id=message.chat.id, message_id=wait_msg.message_id
+            )
+        except: pass
+            
+    except Exception as e:
+        print(f"General Error: {e}")
+        try:
+            bot.edit_message_text(
+                f"<b>❌ ERROR:</b> {str(e)[:200]}",
+                chat_id=message.chat.id, message_id=wait_msg.message_id
+            )
         except: pass
 
 # ========== WEBHOOK & FLASK ==========
