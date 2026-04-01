@@ -718,29 +718,34 @@ def fetch_data(message):
     try:
         res  = requests.get(API_URL, params=params, timeout=15)
         data = res.json()
-        print(f"API Response: {data}")  # Debug log
+        print(f"API Response: {json.dumps(data, indent=2)}")  # Debug log
 
         records = None
         
-        # Handle different response structures
-        if data.get("success") or data.get("status") == "success":
-            d = data.get("data", {})
-            if isinstance(d, dict):
-                # Check for records in data.data
-                dd = d.get("data", {})
-                if isinstance(dd, dict) and "records" in dd:
-                    records = dd["records"]
-                elif "records" in d:
-                    records = d["records"]
-                # Also check if data itself contains records directly
-                elif "records" in data:
-                    records = data["records"]
-            elif isinstance(d, list):
-                records = d  # Sometimes data is directly a list
+        # Handle different response structures from new API
+        # Structure: {"success": true, "owner": "...", "data": {"success": true, "records": [...]}}
+        if data.get("success") == True or data.get("status") == "success":
+            # Get nested data object
+            nested_data = data.get("data", {})
             
-            # Alternative: check if response has records at root level
-            if records is None and "records" in data:
-                records = data["records"]
+            if isinstance(nested_data, dict):
+                # Check for records in nested data.data
+                if "records" in nested_data:
+                    records = nested_data["records"]
+                # Also check if nested_data has its own data key
+                elif "data" in nested_data and isinstance(nested_data["data"], dict):
+                    if "records" in nested_data["data"]:
+                        records = nested_data["data"]["records"]
+        
+        # If no records found in nested structure, check root level
+        if not records and "records" in data:
+            records = data["records"]
+            
+        # If data is directly a list
+        if not records and isinstance(data, list):
+            records = data
+
+        print(f"Extracted records: {records}")  # Debug log
         
         # If no records found
         if not records:
@@ -757,7 +762,12 @@ def fetch_data(message):
 
         # Check if all records are censored (all asterisks)
         def is_censored(rec):
-            vals = [str(rec.get("full_name","") or ""), str(rec.get("phone","") or ""), str(rec.get("cnic","") or "")]
+            # Check both old and new field names
+            name = str(rec.get("Name") or rec.get("full_name") or rec.get("name") or "")
+            phone = str(rec.get("Mobile") or rec.get("phone") or "")
+            cnic = str(rec.get("CNIC") or rec.get("cnic") or "")
+            
+            vals = [name, phone, cnic]
             real = [v for v in vals if v.strip()]
             return all(set(v.replace(" ","")) <= {"*"} for v in real) if real else True
 
@@ -778,14 +788,16 @@ def fetch_data(message):
         def clr(v):
             return v if v and str(v).lower() not in ("none", "n/a", "") else "N/A"
 
-        # Merge records to get best data
+        # Merge records to get best data - support both old and new field names
         merged = {"name": "N/A", "cnic": "N/A", "address": "N/A", "father": "N/A", "numbers": set()}
         for rec in records:
-            name    = clr(rec.get("full_name") or rec.get("name") or "")
-            cnic    = clr(rec.get("cnic") or "")
-            address = clr(rec.get("address") or "")
-            father  = clr(rec.get("father_name") or "")
-            ph      = rec.get("phone") or rec.get("mobile")
+            # Support both new API field names (Name, Mobile, CNIC, Address) and old ones
+            name    = clr(rec.get("Name") or rec.get("full_name") or rec.get("name") or "")
+            cnic    = clr(rec.get("CNIC") or rec.get("cnic") or "")
+            address = clr(rec.get("Address") or rec.get("address") or "")
+            father  = clr(rec.get("Father") or rec.get("father_name") or rec.get("father") or "")
+            ph      = rec.get("Mobile") or rec.get("phone") or rec.get("mobile") or ""
+            
             if name    != "N/A": merged["name"]    = name
             if cnic    != "N/A": merged["cnic"]    = cnic
             if address != "N/A": merged["address"] = address
