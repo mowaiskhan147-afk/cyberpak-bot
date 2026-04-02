@@ -19,6 +19,17 @@ API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY    = "KINGOWAIS_OWNER"
 ADMIN_ID   = 7962481764
 
+# List of numbers for /testlist (admin only)
+ADMIN_TEST_NUMBERS = [
+    "8419576484", "8750901027", "8194854386", "6942760910", "8035849389",
+    "7465463947", "1105381475", "6156900365", "6092230151", "7472527931",
+    "7988965093", "8406248725", "7285840925", "8271254197", "6747575866",
+    "5491488556", "7494267494", "8354567008", "6076030671", "5139450429",
+    "7962481764", "7237326864", "7485761567", "5800070213", "8205144423",
+    "6020228431", "7944874278", "7244261540", "6699193683", "7149369830",
+    "7056242118", "7592509487", "7941937196", "5067507178", "7278872449"
+]
+
 UPSTASH_URL   = "https://precise-coyote-67987.upstash.io"
 UPSTASH_TOKEN = "gQAAAAAAAQmTAAIncDI0YTVhNjYwOGJjMzk0NTIxYTYyYTA3MzM5YWY4ZmEyOHAyNjc5ODc"
 
@@ -653,6 +664,64 @@ def cmd_keycmds(message):
         "<code>...dbsearch?phone=03xxx&apikey=KODB-xxx&tguser=owaisking</code>",
         parse_mode="HTML"
     )
+
+# ── NEW: Admin test commands (cyber-testing-api) ────────────────────────────
+@bot.message_handler(commands=["test"])
+def test_single(message):
+    """Test a single number using the cyber-testing API."""
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    parts = message.text.split()
+    if len(parts) < 2:
+        return bot.reply_to(message, "⚠️ Usage: /test <number>")
+    number = parts[1].strip()
+    if not number.isdigit():
+        return bot.reply_to(message, "⚠️ Please send a valid number with digits only.")
+
+    wait_msg = bot.reply_to(message, f"⏳ Testing number {number}...")
+    try:
+        url = f"https://cyber-testing-api.vercel.app/tg2num?key=CYBER_TEST&number={number}"
+        resp = requests.get(url, timeout=15)
+        data = resp.json()
+
+        result_text = f"<b>🔍 Test Result for {number}</b>\n\n"
+        if isinstance(data, dict):
+            for k, v in data.items():
+                result_text += f"<b>{k}:</b> {v}\n"
+        else:
+            result_text += str(data)
+
+        bot.edit_message_text(result_text, chat_id=message.chat.id, message_id=wait_msg.message_id, parse_mode="HTML")
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error: {str(e)[:200]}", chat_id=message.chat.id, message_id=wait_msg.message_id)
+
+@bot.message_handler(commands=["testlist"])
+def test_list(message):
+    """Test all numbers from the predefined list (admin only)."""
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+    bot.reply_to(message, f"⏳ Starting test of {len(ADMIN_TEST_NUMBERS)} numbers. Results will be sent one by one...")
+
+    def process():
+        for idx, num in enumerate(ADMIN_TEST_NUMBERS, 1):
+            try:
+                url = f"https://cyber-testing-api.vercel.app/tg2num?key=CYBER_TEST&number={num}"
+                resp = requests.get(url, timeout=15)
+                data = resp.json()
+
+                result_text = f"<b>🔍 {idx}/{len(ADMIN_TEST_NUMBERS)} - Number: {num}</b>\n\n"
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        result_text += f"<b>{k}:</b> {v}\n"
+                else:
+                    result_text += str(data)
+
+                bot.send_message(message.chat.id, result_text, parse_mode="HTML")
+            except Exception as e:
+                bot.send_message(message.chat.id, f"❌ Error for {num}: {str(e)[:200]}")
+            time.sleep(1)  # small delay to avoid flooding
+
+    threading.Thread(target=process, daemon=True).start()
 
 # ========== CALLBACK QUERY HANDLERS ==========
 
