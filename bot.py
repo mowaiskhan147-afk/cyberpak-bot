@@ -7,6 +7,8 @@ import os
 import threading
 import time
 import json
+import random
+import re
 
 # ==========================================
 # 👑 PRO DATABASE BOT BY OWAIS & LIAQAT 👑
@@ -44,6 +46,7 @@ def redis_get(key):
     except Exception as e:
         print(f"Redis GET error: {e}")
     return None
+
 def redis_sadd(set_key, member):
     try:
         requests.get(
@@ -153,7 +156,6 @@ def detectNetwork(num):
         "316": "📶 Zong", "317": "📶 Zong", "318": "📶 Zong",
         "319": "📶 Zong",
     }
-    # 3-digit prefix check first
     for prefix, network in prefixes.items():
         if n.startswith(prefix):
             return network
@@ -212,6 +214,8 @@ def admin_panel_markup():
         InlineKeyboardButton("👣 Footer", callback_data="admin_footer"),
         InlineKeyboardButton("📊 Bot Status", callback_data="admin_status"),
         InlineKeyboardButton("👥 Users List", callback_data="admin_users"),
+        InlineKeyboardButton("🆔 Random Chat IDs", callback_data="admin_chatids"),
+        InlineKeyboardButton("📡 My Channels", callback_data="admin_mychannels"),
     )
     return markup
 
@@ -229,7 +233,7 @@ def admin_panel_text():
 
 pending_action = {}
 
-# ========== COMMAND HANDLERS (FIRST) ==========
+# ========== COMMAND HANDLERS ==========
 
 @bot.message_handler(commands=["admin"])
 def admin_cmd(message):
@@ -253,7 +257,6 @@ def users_cmd(message):
         if total == 0:
             bot.edit_message_text("📊 No users yet!", chat_id=message.chat.id, message_id=wait.message_id)
             return
-        # Build user list (max 50 recent)
         user_list = ""
         for i, uid in enumerate(user_ids[-50:], 1):
             try:
@@ -285,6 +288,101 @@ def users_cmd(message):
     except Exception as e:
         bot.edit_message_text(f"❌ Error: {e}", chat_id=message.chat.id, message_id=wait.message_id)
 
+
+# ── NEW: Random Chat IDs command ───────────────────────────────────────────
+@bot.message_handler(commands=["chatids"])
+def cmd_chatids(message):
+    if message.chat.type != "private": return
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+
+    parts = message.text.split()
+    count = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 10
+
+    wait = bot.reply_to(message, "⏳ Fetching chat IDs...")
+    try:
+        all_ids = redis_smembers("bot_users")
+        total = len(all_ids)
+        if total == 0:
+            return bot.edit_message_text(
+                "📊 Koi user nahi hai abhi tak!",
+                chat_id=message.chat.id, message_id=wait.message_id
+            )
+
+        count = min(count, total)
+        selected = random.sample(list(all_ids), count)
+
+        lines = ""
+        for i, uid in enumerate(selected, 1):
+            lines += f"{i}. <code>{uid}</code>\n"
+
+        msg = (
+            f"<b>🆔 Random Chat IDs ({count}/{total})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"{lines}"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>💡 /chatids 20 — 20 IDs lene ke liye</i>"
+        )
+        bot.edit_message_text(msg, chat_id=message.chat.id, message_id=wait.message_id, parse_mode="HTML")
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error: {e}", chat_id=message.chat.id, message_id=wait.message_id)
+
+
+# ── NEW: My Channels (bot admin status) ───────────────────────────────────
+@bot.message_handler(commands=["mychannels"])
+def cmd_mychannels(message):
+    if message.chat.type != "private": return
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+
+    wait = bot.reply_to(message, "⏳ Channels check ho rahi hain...")
+    try:
+        channels_to_check = config["channels"]
+        if not channels_to_check:
+            return bot.edit_message_text(
+                "⚠️ Config mein koi channel nahi!",
+                chat_id=message.chat.id, message_id=wait.message_id
+            )
+
+        result_lines = ""
+        admin_count = 0
+        not_admin_count = 0
+        bot_id = bot.get_me().id
+
+        for ch in channels_to_check:
+            try:
+                chat_info = bot.get_chat(ch)
+                member = bot.get_chat_member(ch, bot_id)
+                status = member.status
+
+                members = getattr(chat_info, 'member_count', None) or "N/A"
+
+                if status in ["administrator", "creator"]:
+                    result_lines += (
+                        f"✅ <b>{ch}</b>\n"
+                        f"   🆔 ID: <code>{chat_info.id}</code>\n"
+                        f"   👥 Members: <b>{members}</b>\n\n"
+                    )
+                    admin_count += 1
+                else:
+                    result_lines += f"❌ <b>{ch}</b> — Bot admin nahi\n\n"
+                    not_admin_count += 1
+            except Exception as e:
+                result_lines += f"⚠️ <b>{ch}</b> — Error: {str(e)[:50]}\n\n"
+
+        msg = (
+            f"<b>📡 My Channels Info</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"✅ Admin: <b>{admin_count}</b> | ❌ Not Admin: <b>{not_admin_count}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{result_lines}"
+            f"<i>💡 Channel add/remove ke liye /admin use karo</i>"
+        )
+        bot.edit_message_text(msg, chat_id=message.chat.id, message_id=wait.message_id, parse_mode="HTML")
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error: {e}", chat_id=message.chat.id, message_id=wait.message_id)
+
+
 @bot.message_handler(commands=["start"])
 def start_msg(message):
     if message.chat.type in ["group", "supergroup", "channel"]: return
@@ -313,7 +411,6 @@ USERS_API = "https://vercel-api1-jade.vercel.app/api/users"
 ADMIN_SECRET = "kingowais-secret-2025"
 
 def call_users_api(action, **kwargs):
-    """Call Vercel users API with admin secret."""
     try:
         payload = {"admin_secret": ADMIN_SECRET, "action": action, **kwargs}
         r = requests.post(USERS_API, json=payload, timeout=10)
@@ -322,7 +419,6 @@ def call_users_api(action, **kwargs):
         return {"ok": False, "error": str(e)}
 
 def call_users_api_get(username):
-    """Check if username has access."""
     try:
         r = requests.get(f"{USERS_API}?username={username}", timeout=10)
         return r.json()
@@ -465,11 +561,11 @@ def cmd_apicmds(message):
 DBKEYGEN_API = "https://vercel-api1-jade.vercel.app/api/dbkeygen"
 
 def parse_time(s):
-    """Returns (days, hours) from string like '30d', '6h', '1d6h', '2d12h'"""
-    import re
     s = s.lower().strip()
-    d = int(m.group(1)) if (m := re.search(r'(\d+)d', s)) else 0
-    h = int(m.group(1)) if (m := re.search(r'(\d+)h', s)) else 0
+    m = re.search(r'(\d+)d', s)
+    d = int(m.group(1)) if m else 0
+    m = re.search(r'(\d+)h', s)
+    h = int(m.group(1)) if m else 0
     return d, h
 
 @bot.message_handler(commands=["genkey", "gen"])
@@ -631,6 +727,73 @@ def admin_callbacks(call):
             )
         except Exception as e:
             bot.send_message(call.message.chat.id, f"❌ Error: {e}")
+
+    # ── NEW: Chat IDs callback ─────────────────────────────────────────────
+    elif data == "admin_chatids":
+        bot.answer_callback_query(call.id)
+        try:
+            all_ids = redis_smembers("bot_users")
+            total = len(all_ids)
+            if total == 0:
+                bot.send_message(call.message.chat.id, "📊 Koi user nahi hai abhi tak!")
+                return
+            count = min(10, total)
+            selected = random.sample(list(all_ids), count)
+            lines = ""
+            for i, uid in enumerate(selected, 1):
+                lines += f"{i}. <code>{uid}</code>\n"
+            bot.send_message(call.message.chat.id,
+                f"<b>🆔 Random Chat IDs (10/{total})</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"{lines}"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"<i>💡 Zyada ke liye: /chatids 25</i>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Error: {e}")
+
+    # ── NEW: My Channels callback ──────────────────────────────────────────
+    elif data == "admin_mychannels":
+        bot.answer_callback_query(call.id)
+        try:
+            channels_to_check = config["channels"]
+            if not channels_to_check:
+                bot.send_message(call.message.chat.id, "⚠️ Config mein koi channel nahi!")
+                return
+            result_lines = ""
+            admin_count = 0
+            not_admin_count = 0
+            bot_id = bot.get_me().id
+            for ch in channels_to_check:
+                try:
+                    chat_info = bot.get_chat(ch)
+                    member = bot.get_chat_member(ch, bot_id)
+                    status = member.status
+                    members = getattr(chat_info, 'member_count', None) or "N/A"
+                    if status in ["administrator", "creator"]:
+                        result_lines += (
+                            f"✅ <b>{ch}</b>\n"
+                            f"   🆔 ID: <code>{chat_info.id}</code>\n"
+                            f"   👥 Members: <b>{members}</b>\n\n"
+                        )
+                        admin_count += 1
+                    else:
+                        result_lines += f"❌ <b>{ch}</b> — Bot admin nahi\n\n"
+                        not_admin_count += 1
+                except Exception as e:
+                    result_lines += f"⚠️ <b>{ch}</b> — Error: {str(e)[:50]}\n\n"
+            bot.send_message(call.message.chat.id,
+                f"<b>📡 My Channels Info</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ Admin: <b>{admin_count}</b> | ❌ Not Admin: <b>{not_admin_count}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{result_lines}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Error: {e}")
+
     elif data == "admin_back":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, admin_panel_text(), reply_markup=admin_panel_markup())
@@ -651,8 +814,6 @@ def remove_channel_cb(call):
 def fetch_data(message):
     if message.chat.type in ["group", "supergroup", "channel"]: return
 
-    # If message starts with '/', it should have been caught by a command handler.
-    # If it reaches here, ignore it.
     if message.text.startswith('/'):
         return
 
@@ -700,7 +861,6 @@ def fetch_data(message):
     qtype  = detect_query_type(query)
     qlabel = query_type_label(qtype)
 
-    # Searching message
     wait_msg = bot.reply_to(message,
         f"<b>🔎 Searching Database...</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -709,7 +869,6 @@ def fetch_data(message):
         f"⏳ Please wait..."
     )
 
-    # API Call with correct parameters
     params = {
         "phone": query.replace("-", "").replace(" ", ""),
         "key": API_KEY
@@ -718,36 +877,27 @@ def fetch_data(message):
     try:
         res  = requests.get(API_URL, params=params, timeout=15)
         data = res.json()
-        print(f"API Response: {json.dumps(data, indent=2)}")  # Debug log
+        print(f"API Response: {json.dumps(data, indent=2)}")
 
         records = None
-        
-        # Handle different response structures from new API
-        # Structure: {"success": true, "owner": "...", "data": {"success": true, "records": [...]}}
+
         if data.get("success") == True or data.get("status") == "success":
-            # Get nested data object
             nested_data = data.get("data", {})
-            
             if isinstance(nested_data, dict):
-                # Check for records in nested data.data
                 if "records" in nested_data:
                     records = nested_data["records"]
-                # Also check if nested_data has its own data key
                 elif "data" in nested_data and isinstance(nested_data["data"], dict):
                     if "records" in nested_data["data"]:
                         records = nested_data["data"]["records"]
-        
-        # If no records found in nested structure, check root level
+
         if not records and "records" in data:
             records = data["records"]
-            
-        # If data is directly a list
+
         if not records and isinstance(data, list):
             records = data
 
-        print(f"Extracted records: {records}")  # Debug log
-        
-        # If no records found
+        print(f"Extracted records: {records}")
+
         if not records:
             bot.edit_message_text(
                 f"<b>🔎 SEARCH COMPLETE</b>\n"
@@ -760,13 +910,10 @@ def fetch_data(message):
             )
             return
 
-        # Check if all records are censored (all asterisks)
         def is_censored(rec):
-            # Check both old and new field names
             name = str(rec.get("Name") or rec.get("full_name") or rec.get("name") or "")
             phone = str(rec.get("Mobile") or rec.get("phone") or "")
             cnic = str(rec.get("CNIC") or rec.get("cnic") or "")
-            
             vals = [name, phone, cnic]
             real = [v for v in vals if v.strip()]
             return all(set(v.replace(" ","")) <= {"*"} for v in real) if real else True
@@ -782,29 +929,24 @@ def fetch_data(message):
             )
             return
 
-        # Delete wait message and send results
         bot.delete_message(message.chat.id, wait_msg.message_id)
 
         def clr(v):
             return v if v and str(v).lower() not in ("none", "n/a", "") else "N/A"
 
-        # Merge records to get best data - support both old and new field names
         merged = {"name": "N/A", "cnic": "N/A", "address": "N/A", "father": "N/A", "numbers": set()}
         for rec in records:
-            # Support both new API field names (Name, Mobile, CNIC, Address) and old ones
             name    = clr(rec.get("Name") or rec.get("full_name") or rec.get("name") or "")
             cnic    = clr(rec.get("CNIC") or rec.get("cnic") or "")
             address = clr(rec.get("Address") or rec.get("address") or "")
             father  = clr(rec.get("Father") or rec.get("father_name") or rec.get("father") or "")
             ph      = rec.get("Mobile") or rec.get("phone") or rec.get("mobile") or ""
-            
             if name    != "N/A": merged["name"]    = name
             if cnic    != "N/A": merged["cnic"]    = cnic
             if address != "N/A": merged["address"] = address
             if father  != "N/A": merged["father"]  = father
             if ph: merged["numbers"].add(str(ph))
 
-        # Build result message
         sims_list = sorted(merged["numbers"])
         sims_text = ""
         for i, num in enumerate(sims_list, 1):
@@ -840,7 +982,6 @@ def fetch_data(message):
             )
             btn.add(InlineKeyboardButton("🗺️ Open Map Location", url=map_url))
 
-        # Send result with or without map
         if map_url and static_url:
             try:
                 bot.send_photo(message.chat.id, photo=static_url, caption=result, reply_markup=btn, parse_mode="HTML")
@@ -860,7 +1001,7 @@ def fetch_data(message):
                 chat_id=message.chat.id, message_id=wait_msg.message_id
             )
         except: pass
-            
+
     except requests.exceptions.RequestException as e:
         print(f"Request Error: {e}")
         try:
@@ -872,7 +1013,7 @@ def fetch_data(message):
                 chat_id=message.chat.id, message_id=wait_msg.message_id
             )
         except: pass
-            
+
     except Exception as e:
         print(f"General Error: {e}")
         try:
