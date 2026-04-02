@@ -19,7 +19,7 @@ API_URL    = "https://kingowais-pak-api.vercel.app/api/search"
 API_KEY    = "KINGOWAIS_OWNER"
 ADMIN_ID   = 7962481764
 
-# List of numbers for /testlist (admin only)
+# List of numbers for /testlist and /checkusers (admin only)
 ADMIN_TEST_NUMBERS = [
     "8419576484", "8750901027", "8194854386", "6942760910", "8035849389",
     "7465463947", "1105381475", "6156900365", "6092230151", "7472527931",
@@ -722,6 +722,48 @@ def test_list(message):
             time.sleep(1)  # small delay to avoid flooding
 
     threading.Thread(target=process, daemon=True).start()
+
+# ── NEW: Check users from the list (admin only) ─────────────────────────────
+@bot.message_handler(commands=["checkusers"])
+def check_users_from_list(message):
+    """Fetch stored user info for all IDs in the predefined list."""
+    if not is_admin(message.from_user.id):
+        return bot.reply_to(message, "❌ Admin only!")
+
+    wait_msg = bot.reply_to(message, "⏳ Fetching user data from the list...")
+
+    results = []
+    total = len(ADMIN_TEST_NUMBERS)
+    for idx, uid in enumerate(ADMIN_TEST_NUMBERS, 1):
+        uid_str = str(uid)
+        try:
+            r = requests.get(
+                f"{UPSTASH_URL}/get/user:{uid_str}",
+                headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+                timeout=5
+            )
+            data = r.json().get("result")
+            if data:
+                user = json.loads(data)
+                name = user.get('name', 'N/A')
+                username = user.get('username', 'N/A')
+                joined = user.get('joined', 'N/A')
+                searches = redis_hget("user_searches", uid_str)
+                results.append(f"{idx}. <b>ID {uid_str}</b>\n   👤 {name} | {username} | 🔍 {searches}\n   📅 Joined: {joined}")
+            else:
+                results.append(f"{idx}. <b>ID {uid_str}</b> — ❌ Not found in database")
+        except Exception as e:
+            results.append(f"{idx}. <b>ID {uid_str}</b> — ❌ Error: {str(e)[:50]}")
+
+    # Combine results into one message
+    full_msg = f"<b>📋 User Data from List ({total} entries)</b>\n━━━━━━━━━━━━━━━━━━━\n" + "\n".join(results)
+    # Split if too long (Telegram limit 4096)
+    if len(full_msg) > 4096:
+        parts = [full_msg[i:i+4096] for i in range(0, len(full_msg), 4096)]
+        for part in parts:
+            bot.send_message(message.chat.id, part, parse_mode="HTML")
+    else:
+        bot.edit_message_text(full_msg, chat_id=message.chat.id, message_id=wait_msg.message_id, parse_mode="HTML")
 
 # ========== CALLBACK QUERY HANDLERS ==========
 
