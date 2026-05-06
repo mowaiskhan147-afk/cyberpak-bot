@@ -157,11 +157,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "copy_page":
         page_numbers, _ = get_page_data(ud["filtered_numbers"] if ud["search_active"] else ud["unique_numbers"], int(parts[2]))
         formatted = "\n".join(format_number_for_display(n) for n in page_numbers)
-        await context.bot.send_message(chat_id=chat_id, text=f"📋 *Page {parts[2]}:*\n```\n{formatted}\n```", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"📋 *Page {parts[2]}:*\n
+```\n{formatted}\n```", parse_mode="Markdown")
     elif action == "copy_all":
         formatted = "\n".join(format_number_for_display(n) for n in ud["unique_numbers"])
-        await context.bot.send_message(chat_id=chat_id, text=f"📋 *All numbers:*\n
-```\n{formatted}\n```", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"📋 *All numbers:*\n```\n{formatted}\n```", parse_mode="Markdown")
     elif action == "download":
         formatted = "\n".join(format_number_for_display(n) for n in ud["unique_numbers"])
         file_bytes = BytesIO(formatted.encode("utf-8"))
@@ -186,7 +186,7 @@ def main():
     
     if not TOKEN:
         logger.error("❌ CRITICAL ERROR: BOT_TOKEN is missing!")
-        sys.exit(1) # Agar token nahi hoga toh clear error aayega
+        sys.exit(1)
 
     application = Application.builder().token(TOKEN).build()
 
@@ -197,10 +197,14 @@ def main():
 
     if RENDER_URL:
         logger.info(f"Starting bot on Render Webhook with PORT: {PORT} and URL: {RENDER_URL}")
+        
+        # Ab f-string ka error bilkul nahi aayega!
+        full_webhook_url = f"{RENDER_URL}/{TOKEN}"
+        
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            webhook_url=f"{RENDER_URL}/{TOKEN}"
+            webhook_url=full_webhook_url
         )
     else:
         logger.error("❌ CRITICAL ERROR: RENDER_EXTERNAL_URL is missing!")
