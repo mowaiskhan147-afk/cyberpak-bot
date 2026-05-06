@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from io import BytesIO
 from typing import Dict, List
@@ -7,15 +8,19 @@ from uuid import uuid4
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# Logging setup taake Render par errors nazar aayen
-logging.basicConfig(level=logging.INFO)
+# Logging setup taake Render par sab saaf nazar aaye
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 user_data: Dict[int, dict] = {}
 NUMBERS_PER_PAGE = 10
 
-# Render automatically in variables ko handle karega
+# Render Environment Variables
 TOKEN = os.environ.get("BOT_TOKEN")
-PORT = int(os.environ.get("PORT", "8443")) 
+PORT = int(os.environ.get("PORT", "10000")) # Render automatically assigns a PORT
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL") 
 
 # --- Helper functions ---
@@ -91,7 +96,7 @@ async def send_numbers_page(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome to *Number Manager Bot*!\n\nSend me a `.txt` file with numbers (one per line).", parse_mode="Markdown")
+    await update.message.reply_text("👋 Welcome to *Number Manager Bot*!\n\nSend me a `.txt` file with numbers.", parse_mode="Markdown")
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -155,7 +160,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=f"📋 *Page {parts[2]}:*\n```\n{formatted}\n```", parse_mode="Markdown")
     elif action == "copy_all":
         formatted = "\n".join(format_number_for_display(n) for n in ud["unique_numbers"])
-        await context.bot.send_message(chat_id=chat_id, text=f"📋 *All numbers:*\n```\n{formatted}\n```", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"📋 *All numbers:*\n
+```\n{formatted}\n```", parse_mode="Markdown")
     elif action == "download":
         formatted = "\n".join(format_number_for_display(n) for n in ud["unique_numbers"])
         file_bytes = BytesIO(formatted.encode("utf-8"))
@@ -176,9 +182,11 @@ async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_numbers_page(update, context, user_id, update.effective_chat.id)
 
 def main():
+    logger.info("Script started! Checking variables...")
+    
     if not TOKEN:
-        logging.error("BOT_TOKEN is missing! Please set it in Render Environment Variables.")
-        return
+        logger.error("❌ CRITICAL ERROR: BOT_TOKEN is missing!")
+        sys.exit(1) # Agar token nahi hoga toh clear error aayega
 
     application = Application.builder().token(TOKEN).build()
 
@@ -188,18 +196,15 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_query))
 
     if RENDER_URL:
-        # Render par chalne ke liye ajeeb o ghareeb links set karne ki zaroorat nahi.
-        # Yeh line automatically Render ka link uthayegi aur webhook set kar degi!
-        logging.info("Starting bot on Render Webhook...")
+        logger.info(f"Starting bot on Render Webhook with PORT: {PORT} and URL: {RENDER_URL}")
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=f"{RENDER_URL}/{TOKEN}"
         )
     else:
-        # Agar aap apne laptop/pc par test kar rahe hain
-        logging.info("Starting bot locally...")
-        application.run_polling()
+        logger.error("❌ CRITICAL ERROR: RENDER_EXTERNAL_URL is missing!")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
