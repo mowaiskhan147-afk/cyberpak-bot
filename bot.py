@@ -8,7 +8,7 @@ from uuid import uuid4
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# Logging setup
+# Logging setup taake errors ka pata chal sake
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
     level=logging.INFO
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 user_data: Dict[int, dict] = {}
 NUMBERS_PER_PAGE = 10
 
-# Variables
+# Render Environment Variables
 TOKEN = os.environ.get("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", "10000"))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL") 
@@ -157,12 +157,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "copy_page":
         page_numbers, _ = get_page_data(ud["filtered_numbers"] if ud["search_active"] else ud["unique_numbers"], int(parts[2]))
         formatted = "\n".join(format_number_for_display(n) for n in page_numbers)
-        # Fix for copy-paste issue
         msg = "📋 *Page " + parts[2] + ":*\n```\n" + formatted + "\n```"
         await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
     elif action == "copy_all":
         formatted = "\n".join(format_number_for_display(n) for n in ud["unique_numbers"])
-        # Fix for copy-paste issue
         msg = "📋 *All numbers:*\n```\n" + formatted + "\n```"
         await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
     elif action == "download":
@@ -193,19 +191,22 @@ def main():
 
     application = Application.builder().token(TOKEN).build()
 
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Document.FileExtension("txt"), handle_file))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_query))
 
     if RENDER_URL:
-        # Link ko safe banaya
         clean_url = RENDER_URL.rstrip("/")
         full_url = clean_url + "/" + TOKEN
-        logger.info("Starting bot on Render Webhook...")
+        logger.info(f"Starting bot on Render Webhook... {full_url}")
+        
+        # Yahan main fix hai (url_path=TOKEN add kiya gaya hai)
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
+            url_path=TOKEN,
             webhook_url=full_url
         )
     else:
